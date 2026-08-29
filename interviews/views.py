@@ -18,6 +18,7 @@ from .models import (
     SkillScore,
 )
 from .services.ai import AIService
+from .services.stt import SpeechToTextService
 
 
 class SkillListView(APIView):
@@ -153,7 +154,10 @@ class GenerateInterviewView(APIView):
                 }
             )
 
-        skills = [job_skill.skill for job_skill in job_skills]
+        skills = [
+            job_skill.skill
+            for job_skill in job_skills
+        ]
 
         ai_service = AIService()
         generated = ai_service.generate_questions(skills)
@@ -264,10 +268,6 @@ class CandidateAnswerView(APIView):
             )
 
         question_id = request.data.get("question_id")
-        transcript = request.data.get(
-            "transcript",
-            "",
-        ).strip()
 
         if not question_id:
             return Response(
@@ -275,9 +275,35 @@ class CandidateAnswerView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        audio_file = request.FILES.get("audio")
+
+        transcript = request.data.get(
+            "transcript",
+            "",
+        ).strip()
+
+        # If the candidate uploaded audio without providing
+        # a transcript, convert the audio to text.
+        if not transcript and audio_file:
+            try:
+                transcript = SpeechToTextService().transcribe(
+                    audio_file
+                )
+            except ValueError as exc:
+                return Response(
+                    {"error": str(exc)},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        # Support both typed answers and audio answers,
+        # but require at least one.
         if not transcript:
             return Response(
-                {"error": "transcript is required"},
+                {
+                    "error": (
+                        "transcript or audio is required"
+                    )
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -287,12 +313,17 @@ class CandidateAnswerView(APIView):
             interview=interview,
         )
 
-        Answer.objects.update_or_create(
+        answer, _ = Answer.objects.update_or_create(
             question=question,
             defaults={
                 "transcript": transcript,
             },
         )
+
+        # Store the original audio file when supplied.
+        if audio_file:
+            answer.audio = audio_file
+            answer.save(update_fields=["audio"])
 
         interview.status = "in_progress"
         interview.save(update_fields=["status"])

@@ -1,5 +1,6 @@
 from datetime import timedelta
 
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
@@ -14,6 +15,7 @@ from .models import (
     Skill,
     SkillScore,
 )
+from .services.ai import AIService
 
 
 class InterviewAPITestCase(TestCase):
@@ -61,11 +63,84 @@ class InterviewAPITestCase(TestCase):
             required_rating=4,
         )
 
-    def test_skills_endpoint(self):
-        response = self.client.get("/api/skills/")
+    def test_ai_service_generates_structured_questions(self):
+        service = AIService()
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(response.data), 3)
+        result = service.generate_questions(
+            [
+                self.python,
+                self.postgres,
+                self.api_design,
+            ]
+        )
+
+        self.assertEqual(len(result.questions), 5)
+
+        for question in result.questions:
+            self.assertTrue(question.question)
+            self.assertTrue(question.skill_id)
+
+    def test_ai_service_returns_structured_interview_score(self):
+        service = AIService()
+
+        result = service.score_interview(
+            skills=[
+                self.python,
+                self.postgres,
+                self.api_design,
+            ],
+            transcripts={
+                "tl.python": (
+                    "I have extensive professional experience "
+                    "building backend services with Python."
+                ),
+                "tl.postgres": (
+                    "I have worked with PostgreSQL databases "
+                    "and designed production queries."
+                ),
+                "kn.apidesign": (
+                    "I have designed REST APIs for several "
+                    "backend applications."
+                ),
+            },
+        )
+
+        self.assertEqual(len(result.skills), 3)
+
+        self.assertIn(
+            result.fit_score,
+            ["High", "Medium", "Low"],
+        )
+
+        for skill_score in result.skills:
+            self.assertGreaterEqual(
+                skill_score.rating,
+                1,
+            )
+
+            self.assertLessEqual(
+                skill_score.rating,
+                5,
+            )
+
+            self.assertTrue(
+                skill_score.evidence
+            )
+
+    def test_skills_endpoint(self):
+        response = self.client.get(
+            "/api/skills/"
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        self.assertEqual(
+            len(response.data),
+            3,
+        )
 
     def test_create_job(self):
         response = self.client.post(
@@ -82,25 +157,52 @@ class InterviewAPITestCase(TestCase):
             format="json",
         )
 
-        self.assertEqual(response.status_code, 201)
-        self.assertEqual(response.data["title"], "Backend Developer")
+        self.assertEqual(
+            response.status_code,
+            201,
+        )
 
-        job = Job.objects.get(id=response.data["id"])
-        self.assertEqual(job.skills.count(), 1)
+        self.assertEqual(
+            response.data["title"],
+            "Backend Developer",
+        )
+
+        job = Job.objects.get(
+            id=response.data["id"]
+        )
+
+        self.assertEqual(
+            job.skills.count(),
+            1,
+        )
 
     def test_generate_interview_creates_five_questions(self):
         response = self.client.post(
             f"/api/jobs/{self.job.id}/interview/"
         )
 
-        self.assertEqual(response.status_code, 201)
+        self.assertEqual(
+            response.status_code,
+            201,
+        )
 
-        interview_id = response.data["interview_id"]
+        interview_id = response.data[
+            "interview_id"
+        ]
 
-        interview = Interview.objects.get(id=interview_id)
+        interview = Interview.objects.get(
+            id=interview_id
+        )
 
-        self.assertEqual(interview.questions.count(), 5)
-        self.assertEqual(interview.status, "not_started")
+        self.assertEqual(
+            interview.questions.count(),
+            5,
+        )
+
+        self.assertEqual(
+            interview.status,
+            "not_started",
+        )
 
         orders = list(
             interview.questions.values_list(
@@ -109,7 +211,10 @@ class InterviewAPITestCase(TestCase):
             )
         )
 
-        self.assertEqual(orders, [1, 2, 3, 4, 5])
+        self.assertEqual(
+            orders,
+            [1, 2, 3, 4, 5],
+        )
 
     def test_generate_interview_does_not_duplicate(self):
         first_response = self.client.post(
@@ -120,8 +225,15 @@ class InterviewAPITestCase(TestCase):
             f"/api/jobs/{self.job.id}/interview/"
         )
 
-        self.assertEqual(first_response.status_code, 201)
-        self.assertEqual(second_response.status_code, 200)
+        self.assertEqual(
+            first_response.status_code,
+            201,
+        )
+
+        self.assertEqual(
+            second_response.status_code,
+            200,
+        )
 
         self.assertEqual(
             first_response.data["interview_id"],
@@ -129,7 +241,9 @@ class InterviewAPITestCase(TestCase):
         )
 
         self.assertEqual(
-            Interview.objects.filter(job=self.job).count(),
+            Interview.objects.filter(
+                job=self.job
+            ).count(),
             1,
         )
 
@@ -144,9 +258,20 @@ class InterviewAPITestCase(TestCase):
             f"/api/interview/{token}/"
         )
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data["status"], "not_started")
-        self.assertEqual(len(response.data["questions"]), 5)
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        self.assertEqual(
+            response.data["status"],
+            "not_started",
+        )
+
+        self.assertEqual(
+            len(response.data["questions"]),
+            5,
+        )
 
     def test_candidate_can_submit_answer(self):
         response = self.client.post(
@@ -165,33 +290,107 @@ class InterviewAPITestCase(TestCase):
             f"/api/interview/{token}/answer/",
             {
                 "question_id": question.id,
-                "transcript": "I have extensive Python experience.",
+                "transcript": (
+                    "I have extensive Python experience."
+                ),
             },
             format="json",
         )
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data["status"], "in_progress")
-        self.assertEqual(response.data["answered"], 1)
-        self.assertEqual(response.data["total"], 5)
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
 
         self.assertEqual(
-            Answer.objects.filter(question=question).count(),
+            response.data["status"],
+            "in_progress",
+        )
+
+        self.assertEqual(
+            response.data["answered"],
             1,
+        )
+
+        self.assertEqual(
+            response.data["total"],
+            5,
+        )
+
+        self.assertEqual(
+            Answer.objects.filter(
+                question=question
+            ).count(),
+            1,
+        )
+
+    def test_candidate_can_submit_audio_answer(self):
+        response = self.client.post(
+            f"/api/jobs/{self.job.id}/interview/"
+        )
+
+        token = response.data["token"]
+
+        interview = Interview.objects.get(
+            id=response.data["interview_id"]
+        )
+
+        question = interview.questions.first()
+
+        audio = SimpleUploadedFile(
+            "answer.webm",
+            b"fake audio content",
+            content_type="audio/webm",
+        )
+
+        response = self.client.post(
+            f"/api/interview/{token}/answer/",
+            {
+                "question_id": question.id,
+                "audio": audio,
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        answer = Answer.objects.get(
+            question=question
+        )
+
+        self.assertTrue(
+            answer.audio
+        )
+
+        self.assertTrue(
+            answer.transcript
+        )
+
+        self.assertIn(
+            "Audio response received successfully",
+            answer.transcript,
         )
 
     def test_answer_requires_question_id(self):
         response = self.client.post(
-            "/api/interview/00000000-0000-0000-0000-000000000000/answer/",
+            "/api/interview/"
+            "00000000-0000-0000-0000-000000000000/"
+            "answer/",
             {
                 "transcript": "Some answer",
             },
             format="json",
         )
 
-        self.assertEqual(response.status_code, 404)
+        self.assertEqual(
+            response.status_code,
+            404,
+        )
 
-    def test_answer_requires_transcript(self):
+    def test_answer_requires_transcript_or_audio(self):
         response = self.client.post(
             f"/api/jobs/{self.job.id}/interview/"
         )
@@ -213,10 +412,14 @@ class InterviewAPITestCase(TestCase):
             format="json",
         )
 
-        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.status_code,
+            400,
+        )
+
         self.assertEqual(
             response.data["error"],
-            "transcript is required",
+            "transcript or audio is required",
         )
 
     def test_completing_interview_creates_scores_and_result(self):
@@ -240,19 +443,28 @@ class InterviewAPITestCase(TestCase):
                 {
                     "question_id": question.id,
                     "transcript": (
-                        f"I have professional experience with "
-                        f"{question.skill.name}."
+                        "I have professional experience "
+                        f"with {question.skill.name}."
                     ),
                 },
                 format="json",
             )
 
-            self.assertEqual(response.status_code, 200)
+            self.assertEqual(
+                response.status_code,
+                200,
+            )
 
         interview.refresh_from_db()
 
-        self.assertEqual(interview.status, "completed")
-        self.assertIsNotNone(interview.used_at)
+        self.assertEqual(
+            interview.status,
+            "completed",
+        )
+
+        self.assertIsNotNone(
+            interview.used_at
+        )
 
         self.assertEqual(
             Answer.objects.filter(
@@ -306,7 +518,11 @@ class InterviewAPITestCase(TestCase):
             format="json",
         )
 
-        self.assertEqual(response.status_code, 410)
+        self.assertEqual(
+            response.status_code,
+            410,
+        )
+
         self.assertEqual(
             response.data["error"],
             "Interview link has already been used",
@@ -337,15 +553,21 @@ class InterviewAPITestCase(TestCase):
             f"/api/interview/{token}/result/"
         )
 
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
         self.assertEqual(
             response.data["status"],
             "completed",
         )
+
         self.assertIn(
             response.data["fit_score"],
             ["High", "Medium", "Low"],
         )
+
         self.assertEqual(
             len(response.data["skill_scores"]),
             3,
@@ -354,15 +576,21 @@ class InterviewAPITestCase(TestCase):
     def test_expired_interview_is_rejected(self):
         interview = Interview.objects.create(
             job=self.job,
-            expires_at=timezone.now() - timedelta(hours=1),
+            expires_at=timezone.now()
+            - timedelta(hours=1),
         )
 
         response = self.client.get(
             f"/api/interview/{interview.token}/"
         )
 
-        self.assertEqual(response.status_code, 410)
+        self.assertEqual(
+            response.status_code,
+            410,
+        )
+
         self.assertEqual(
             response.data["error"],
             "Interview link has expired",
         )
+
