@@ -1,0 +1,60 @@
+{
+  "version": 1,
+  "dimensions": [
+    "knowledge",
+    "applied_skill",
+    "tool",
+    "responsibility",
+    "context",
+    "attribute"
+  ],
+  "skills": [
+    { "id": "kn.dsa",            "dimension": "knowledge",      "name": "Data structures and algorithms" },
+    { "id": "kn.dbdesign",       "dimension": "knowledge",      "name": "Relational database design" },
+    { "id": "kn.apidesign",      "dimension": "knowledge",      "name": "REST API design" },
+    { "id": "kn.authz",          "dimension": "knowledge",      "name": "Authentication and authorization" },
+    { "id": "kn.concurrency",    "dimension": "knowledge",      "name": "Concurrency and async programming" },
+    { "id": "kn.llm",            "dimension": "knowledge",      "name": "LLM prompting and evaluation" },
+    { "id": "kn.retrieval",      "dimension": "knowledge",      "name": "Embeddings and retrieval" },
+    { "id": "kn.testing",        "dimension": "knowledge",      "name": "Automated testing" },
+
+    { "id": "as.backend",        "dimension": "applied_skill",  "name": "Backend service development" },
+    { "id": "as.frontend",       "dimension": "applied_skill",  "name": "Frontend UI development" },
+    { "id": "as.datamodel",      "dimension": "applied_skill",  "name": "Schema and data modelling" },
+    { "id": "as.integration",    "dimension": "applied_skill",  "name": "Third-party API integration" },
+    { "id": "as.filehandling",   "dimension": "applied_skill",  "name": "File and media handling" },
+    { "id": "as.debugging",      "dimension": "applied_skill",  "name": "Debugging and root-cause analysis" },
+    { "id": "as.perf",           "dimension": "applied_skill",  "name": "Performance tuning" },
+    { "id": "as.deploy",         "dimension": "applied_skill",  "name": "Deployment and release" },
+
+    { "id": "tl.python",         "dimension": "tool",           "name": "Python" },
+    { "id": "tl.fastapi",        "dimension": "tool",           "name": "FastAPI" },
+    { "id": "tl.django",         "dimension": "tool",           "name": "Django" },
+    { "id": "tl.node",           "dimension": "tool",           "name": "Node.js" },
+    { "id": "tl.react",          "dimension": "tool",           "name": "React" },
+    { "id": "tl.typescript",     "dimension": "tool",           "name": "TypeScript" },
+    { "id": "tl.postgres",       "dimension": "tool",           "name": "PostgreSQL" },
+    { "id": "tl.redis",          "dimension": "tool",           "name": "Redis" },
+    { "id": "tl.docker",         "dimension": "tool",           "name": "Docker" },
+    { "id": "tl.git",            "dimension": "tool",           "name": "Git" },
+    { "id": "tl.aws",            "dimension": "tool",           "name": "AWS" },
+    { "id": "tl.whisper",        "dimension": "tool",           "name": "Speech-to-text (Whisper or equivalent)" },
+    { "id": "tl.vectordb",       "dimension": "tool",           "name": "Vector database" },
+
+    { "id": "rs.featureowner",   "dimension": "responsibility", "name": "Owning a feature end to end" },
+    { "id": "rs.codereview",     "dimension": "responsibility", "name": "Code review" },
+    { "id": "rs.oncall",         "dimension": "responsibility", "name": "Production support" },
+    { "id": "rs.mentoring",      "dimension": "responsibility", "name": "Mentoring junior engineers" },
+    { "id": "rs.reqgathering",   "dimension": "responsibility", "name": "Requirement gathering with stakeholders" },
+
+    { "id": "cx.startup",        "dimension": "context",        "name": "Early-stage startup environment" },
+    { "id": "cx.hrtech",         "dimension": "context",        "name": "HR technology / recruitment domain" },
+    { "id": "cx.b2bsaas",        "dimension": "context",        "name": "B2B SaaS products" },
+    { "id": "cx.dataprivacy",    "dimension": "context",        "name": "Data privacy and PII handling" },
+
+    { "id": "at.ownership",      "dimension": "attribute",      "name": "Ownership and follow-through" },
+    { "id": "at.communication",  "dimension": "attribute",      "name": "Written and verbal communication" },
+    { "id": "at.ambiguity",      "dimension": "attribute",      "name": "Comfort with ambiguity" },
+    { "id": "at.learning",       "dimension": "attribute",      "name": "Speed of learning" }
+  ]
+}
