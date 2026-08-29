@@ -1,30 +1,54 @@
-import { BrowserRouter, Routes, Route } from "react-router-dom";
 import JobCreation from "./pages/JobCreation";
 import CandidateInterview from "./pages/CandidateInterview";
 import InterviewResult from "./pages/InterviewResult";
 
 function App() {
-return ( <BrowserRouter> <Routes>
-<Route
-path="/"
-element={<JobCreation />}
-/>
+    const path = window.location.pathname;
 
+    /*
+     * Interview Result
+     *
+     * URL:
+     * /interview/<token>/result
+     *
+     * This check must come BEFORE the normal interview route,
+     * otherwise /result would be treated as the token.
+     */
+    if (
+        path.startsWith("/interview/") &&
+        path.endsWith("/result")
+    ) {
+        const parts = path.split("/");
+        const token = parts[2];
 
-            <Route
-                path="/interview/:token"
-                element={<CandidateInterview />}
-            />
+        if (token) {
+            return <InterviewResult token={token} />;
+        }
+    }
 
-            <Route
-                path="/interview/:token/result"
-                element={<InterviewResult />}
-            />
-        </Routes>
-    </BrowserRouter>
-);
+    /*
+     * Candidate Interview
+     *
+     * URL:
+     * /interview/<token>
+     */
+    if (path.startsWith("/interview/")) {
+        const parts = path.split("/");
+        const token = parts[2];
 
+        if (token) {
+            return <CandidateInterview token={token} />;
+        }
+    }
 
+    /*
+     * Default route
+     *
+     * URL:
+     * /
+     */
+    return <JobCreation />;
 }
 
 export default App;
+
