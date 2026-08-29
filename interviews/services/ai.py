@@ -25,9 +25,6 @@ class InterviewScore(BaseModel):
 
 
 class AIService:
-    
-    # I have used Langchain  and if you want it immersive with ai you can use it with langchain and openai 
-    # api key mostly itll be paid one. 
 
     def generate_questions(self, skills):
         """
@@ -50,7 +47,6 @@ class AIService:
                 )
             )
 
-        # I created this so you can see how the system behaves when there are fewer than 5 skills.
         index = 0
 
         while len(questions) < 5:
@@ -74,25 +70,47 @@ class AIService:
 
     def score_interview(self, skills, transcripts):
         """
-        Mock scoring implementation.
+        Score each required skill based on the candidate's transcript.
 
-        Real implementation can use LangChain structured output.
+        Local deterministic implementation for development/testing.
         """
 
         scores = []
 
         for skill in skills:
-            transcript_text = transcripts.get(skill.skill_id, "")
+            transcript_text = transcripts.get(skill.skill_id, "").strip()
 
-            if transcript_text.strip():
-                rating = 4
-                evidence = (
-                    f"Candidate provided an answer discussing "
-                    f"{skill.name}."
-                )
-            else:
+            if not transcript_text:
                 rating = 1
                 evidence = "No transcript was provided."
+
+            else:
+                word_count = len(transcript_text.split())
+
+                if word_count >= 80:
+                    rating = 5
+                    evidence = (
+                        f"Candidate provided a detailed response demonstrating "
+                        f"experience with {skill.name}."
+                    )
+                elif word_count >= 40:
+                    rating = 4
+                    evidence = (
+                        f"Candidate provided a relevant response describing "
+                        f"experience with {skill.name}."
+                    )
+                elif word_count >= 20:
+                    rating = 3
+                    evidence = (
+                        f"Candidate provided a basic response related to "
+                        f"{skill.name}."
+                    )
+                else:
+                    rating = 2
+                    evidence = (
+                        f"Candidate mentioned {skill.name}, but the response "
+                        f"contained limited supporting detail."
+                    )
 
             scores.append(
                 ScoredSkill(
@@ -115,8 +133,9 @@ class AIService:
             skills=scores,
             fit_score=fit_score,
             summary=(
-                "The candidate completed the interview."
-                "The answers were evaluated against the required skills."
+                "The candidate completed the interview.\n"
+                f"The candidate demonstrated an average skill rating "
+                f"of {average:.1f}/5.\n"
                 f"Overall fit was assessed as {fit_score}."
             ),
         )

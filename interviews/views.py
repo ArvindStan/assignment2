@@ -1,20 +1,21 @@
-from django.shortcuts import render
+from datetime import timedelta
+
+from django.db import transaction
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import Job, JobSkill, Skill
-from datetime import timedelta
-
-from django.utils import timezone
-
-
 from .models import (
+    Answer,
     Interview,
     InterviewQuestion,
+    InterviewResult,
     Job,
     JobSkill,
+    Skill,
+    SkillScore,
 )
 from .services.ai import AIService
 
@@ -49,12 +50,15 @@ class JobListCreateView(APIView):
                         "dimension": js.skill.dimension,
                         "required_rating": js.required_rating,
                     }
-                    for js in JobSkill.objects.filter(job=job).select_related("skill")
+                    for js in JobSkill.objects.filter(
+                        job=job
+                    ).select_related("skill")
                 ],
             }
             for job in jobs
         ])
 
+    @transaction.atomic
     def post(self, request):
         title = request.data.get("title")
         skills = request.data.get("skills", [])
@@ -79,11 +83,21 @@ class JobListCreateView(APIView):
                 skill_id=item["skill_id"],
             )
 
-            rating = int(item["required_rating"])
+            try:
+                rating = int(item["required_rating"])
+            except (TypeError, ValueError):
+                return Response(
+                    {"error": "required_rating must be an integer"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
             if rating < 1 or rating > 5:
                 return Response(
-                    {"error": "required_rating must be between 1 and 5"},
+                    {
+                        "error": (
+                            "required_rating must be between 1 and 5"
+                        )
+                    },
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
@@ -102,10 +116,10 @@ class JobListCreateView(APIView):
             status=status.HTTP_201_CREATED,
         )
 
-class GenerateInterviewView(APIView):
 
+class GenerateInterviewView(APIView):
     def post(self, request, job_id):
-        job = Job.objects.get(id=job_id)
+        job = get_object_or_404(Job, id=job_id)
 
         job_skills = list(
             JobSkill.objects
@@ -120,10 +134,15 @@ class GenerateInterviewView(APIView):
             )
 
         # Don't regenerate an interview every time.
-        existing = Interview.objects.filter(
-            job=job,
-            questions__isnull=False,
-        ).distinct().first()
+        existing = (
+            Interview.objects
+            .filter(
+                job=job,
+                questions__isnull=False,
+            )
+            .distinct()
+            .first()
+        )
 
         if existing:
             return Response(
@@ -137,7 +156,6 @@ class GenerateInterviewView(APIView):
         skills = [job_skill.skill for job_skill in job_skills]
 
         ai_service = AIService()
-
         generated = ai_service.generate_questions(skills)
 
         interview = Interview.objects.create(
@@ -189,4 +207,215 @@ class GenerateInterviewView(APIView):
             },
             status=status.HTTP_201_CREATED,
         )
-    
+
+
+class CandidateInterviewView(APIView):
+    def get(self, request, token):
+        interview = get_object_or_404(
+            Interview.objects.prefetch_related(
+                "questions__skill"
+            ),
+            token=token,
+        )
+
+        if interview.expires_at <= timezone.now():
+            return Response(
+                {"error": "Interview link has expired"},
+                status=status.HTTP_410_GONE,
+            )
+
+        if interview.used_at is not None:
+            return Response(
+                {"error": "Interview link has already been used"},
+                status=status.HTTP_410_GONE,
+            )
+
+        return Response({
+            "interview_id": str(interview.id),
+            "status": interview.status,
+            "questions": [
+                {
+                    "id": question.id,
+                    "order": question.order,
+                    "question": question.question,
+                }
+                for question in interview.questions.all()
+            ],
+        })
+
+
+class CandidateAnswerView(APIView):
+    def post(self, request, token):
+        interview = get_object_or_404(
+            Interview,
+            token=token,
+        )
+
+        if interview.expires_at <= timezone.now():
+            return Response(
+                {"error": "Interview link has expired"},
+                status=status.HTTP_410_GONE,
+            )
+
+        if interview.used_at is not None:
+            return Response(
+                {"error": "Interview link has already been used"},
+                status=status.HTTP_410_GONE,
+            )
+
+        question_id = request.data.get("question_id")
+        transcript = request.data.get(
+            "transcript",
+            "",
+        ).strip()
+
+        if not question_id:
+            return Response(
+                {"error": "question_id is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not transcript:
+            return Response(
+                {"error": "transcript is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        question = get_object_or_404(
+            InterviewQuestion,
+            id=question_id,
+            interview=interview,
+        )
+
+        Answer.objects.update_or_create(
+            question=question,
+            defaults={
+                "transcript": transcript,
+            },
+        )
+
+        interview.status = "in_progress"
+        interview.save(update_fields=["status"])
+
+        total_questions = interview.questions.count()
+
+        answered_questions = Answer.objects.filter(
+            question__interview=interview
+        ).count()
+
+        if answered_questions >= total_questions:
+            interview.status = "completed"
+            interview.used_at = timezone.now()
+
+            interview.save(
+                update_fields=[
+                    "status",
+                    "used_at",
+                ]
+            )
+
+            job_skills = list(
+                JobSkill.objects
+                .filter(job=interview.job)
+                .select_related("skill")
+            )
+
+            skills = [
+                job_skill.skill
+                for job_skill in job_skills
+            ]
+
+            transcripts = {}
+
+            answers = (
+                Answer.objects
+                .filter(question__interview=interview)
+                .select_related("question__skill")
+            )
+
+            for answer in answers:
+                transcripts[
+                    answer.question.skill.skill_id
+                ] = answer.transcript
+
+            ai_service = AIService()
+
+            score = ai_service.score_interview(
+                skills=skills,
+                transcripts=transcripts,
+            )
+
+            for skill_score in score.skills:
+                skill = next(
+                    (
+                        skill
+                        for skill in skills
+                        if skill.skill_id == skill_score.skill_id
+                    ),
+                    None,
+                )
+
+                if skill:
+                    SkillScore.objects.update_or_create(
+                        interview=interview,
+                        skill=skill,
+                        defaults={
+                            "rating": skill_score.rating,
+                        },
+                    )
+
+            InterviewResult.objects.update_or_create(
+                interview=interview,
+                defaults={
+                    "fit_score": score.fit_score,
+                    "summary": score.summary,
+                },
+            )
+
+        return Response({
+            "message": "Answer saved",
+            "status": interview.status,
+            "answered": answered_questions,
+            "total": total_questions,
+        })
+
+
+class InterviewResultView(APIView):
+    def get(self, request, token):
+        interview = get_object_or_404(
+            Interview,
+            token=token,
+        )
+
+        if interview.status != "completed":
+            return Response(
+                {"error": "Interview is not completed"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        result = get_object_or_404(
+            InterviewResult,
+            interview=interview,
+        )
+
+        skill_scores = (
+            SkillScore.objects
+            .filter(interview=interview)
+            .select_related("skill")
+        )
+
+        return Response({
+            "interview_id": str(interview.id),
+            "status": interview.status,
+            "fit_score": result.fit_score,
+            "summary": result.summary,
+            "skill_scores": [
+                {
+                    "skill_id": skill_score.skill.skill_id,
+                    "skill": skill_score.skill.name,
+                    "rating": skill_score.rating,
+                }
+                for skill_score in skill_scores
+            ],
+        })
+
