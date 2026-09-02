@@ -1,4 +1,5 @@
 from datetime import timedelta
+from unittest.mock import patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
@@ -15,7 +16,12 @@ from .models import (
     Skill,
     SkillScore,
 )
-from .services.ai import AIService
+from .services.ai import (
+    GeneratedQuestion,
+    GeneratedQuestions,
+    InterviewScore,
+    SkillEvaluation,
+)
 
 
 class InterviewAPITestCase(TestCase):
@@ -63,8 +69,94 @@ class InterviewAPITestCase(TestCase):
             required_rating=4,
         )
 
-    def test_ai_service_generates_structured_questions(self):
-        service = AIService()
+    def mock_generated_questions(self):
+        return GeneratedQuestions(
+            questions=[
+                GeneratedQuestion(
+                    skill_id="tl.python",
+                    question=(
+                        "Explain how Python manages memory "
+                        "and how garbage collection works."
+                    ),
+                ),
+                GeneratedQuestion(
+                    skill_id="tl.python",
+                    question=(
+                        "How would you design a scalable "
+                        "Python backend service?"
+                    ),
+                ),
+                GeneratedQuestion(
+                    skill_id="tl.postgres",
+                    question=(
+                        "Explain how PostgreSQL indexes work "
+                        "and when you would use them."
+                    ),
+                ),
+                GeneratedQuestion(
+                    skill_id="tl.postgres",
+                    question=(
+                        "How would you investigate and optimize "
+                        "a slow PostgreSQL query?"
+                    ),
+                ),
+                GeneratedQuestion(
+                    skill_id="kn.apidesign",
+                    question=(
+                        "How would you design a REST API that "
+                        "supports pagination and versioning?"
+                    ),
+                ),
+            ]
+        )
+
+    def mock_interview_score(self):
+        return InterviewScore(
+            skills=[
+                SkillEvaluation(
+                    skill_id="tl.python",
+                    rating=4,
+                    evidence=(
+                        "The candidate demonstrated strong "
+                        "Python backend experience."
+                    ),
+                ),
+                SkillEvaluation(
+                    skill_id="tl.postgres",
+                    rating=4,
+                    evidence=(
+                        "The candidate demonstrated practical "
+                        "PostgreSQL knowledge."
+                    ),
+                ),
+                SkillEvaluation(
+                    skill_id="kn.apidesign",
+                    rating=4,
+                    evidence=(
+                        "The candidate demonstrated a good "
+                        "understanding of REST API design."
+                    ),
+                ),
+            ],
+            fit_score="High",
+            summary=(
+                "The candidate demonstrated strong technical "
+                "knowledge across the required skills."
+            ),
+        )
+
+    @patch(
+        "interviews.views.AIService"
+    )
+    def test_ai_service_generates_structured_questions(
+        self,
+        mock_ai_service,
+    ):
+        mock_ai_service.return_value.generate_questions.return_value = (
+            self.mock_generated_questions()
+        )
+
+        service = mock_ai_service()
 
         result = service.generate_questions(
             [
@@ -74,14 +166,27 @@ class InterviewAPITestCase(TestCase):
             ]
         )
 
-        self.assertEqual(len(result.questions), 5)
+        self.assertEqual(
+            len(result.questions),
+            5,
+        )
 
         for question in result.questions:
             self.assertTrue(question.question)
             self.assertTrue(question.skill_id)
 
-    def test_ai_service_returns_structured_interview_score(self):
-        service = AIService()
+    @patch(
+        "interviews.views.AIService"
+    )
+    def test_ai_service_returns_structured_interview_score(
+        self,
+        mock_ai_service,
+    ):
+        mock_ai_service.return_value.score_interview.return_value = (
+            self.mock_interview_score()
+        )
+
+        service = mock_ai_service()
 
         result = service.score_interview(
             skills=[
@@ -105,7 +210,10 @@ class InterviewAPITestCase(TestCase):
             },
         )
 
-        self.assertEqual(len(result.skills), 3)
+        self.assertEqual(
+            len(result.skills),
+            3,
+        )
 
         self.assertIn(
             result.fit_score,
@@ -142,7 +250,10 @@ class InterviewAPITestCase(TestCase):
             3,
         )
 
-    def test_create_job(self):
+    @patch(
+        "interviews.views.AIService"
+    )
+    def test_create_job(self, mock_ai_service):
         response = self.client.post(
             "/api/jobs/",
             {
@@ -176,7 +287,17 @@ class InterviewAPITestCase(TestCase):
             1,
         )
 
-    def test_generate_interview_creates_five_questions(self):
+    @patch(
+        "interviews.views.AIService"
+    )
+    def test_generate_interview_creates_five_questions(
+        self,
+        mock_ai_service,
+    ):
+        mock_ai_service.return_value.generate_questions.return_value = (
+            self.mock_generated_questions()
+        )
+
         response = self.client.post(
             f"/api/jobs/{self.job.id}/interview/"
         )
@@ -216,7 +337,17 @@ class InterviewAPITestCase(TestCase):
             [1, 2, 3, 4, 5],
         )
 
-    def test_generate_interview_does_not_duplicate(self):
+    @patch(
+        "interviews.views.AIService"
+    )
+    def test_generate_interview_does_not_duplicate(
+        self,
+        mock_ai_service,
+    ):
+        mock_ai_service.return_value.generate_questions.return_value = (
+            self.mock_generated_questions()
+        )
+
         first_response = self.client.post(
             f"/api/jobs/{self.job.id}/interview/"
         )
@@ -247,7 +378,17 @@ class InterviewAPITestCase(TestCase):
             1,
         )
 
-    def test_candidate_can_get_interview(self):
+    @patch(
+        "interviews.views.AIService"
+    )
+    def test_candidate_can_get_interview(
+        self,
+        mock_ai_service,
+    ):
+        mock_ai_service.return_value.generate_questions.return_value = (
+            self.mock_generated_questions()
+        )
+
         response = self.client.post(
             f"/api/jobs/{self.job.id}/interview/"
         )
@@ -273,7 +414,17 @@ class InterviewAPITestCase(TestCase):
             5,
         )
 
-    def test_candidate_can_submit_answer(self):
+    @patch(
+        "interviews.views.AIService"
+    )
+    def test_candidate_can_submit_answer(
+        self,
+        mock_ai_service,
+    ):
+        mock_ai_service.return_value.generate_questions.return_value = (
+            self.mock_generated_questions()
+        )
+
         response = self.client.post(
             f"/api/jobs/{self.job.id}/interview/"
         )
@@ -324,7 +475,17 @@ class InterviewAPITestCase(TestCase):
             1,
         )
 
-    def test_candidate_can_submit_audio_answer(self):
+    @patch(
+        "interviews.views.AIService"
+    )
+    def test_candidate_can_submit_audio_answer(
+        self,
+        mock_ai_service,
+    ):
+        mock_ai_service.return_value.generate_questions.return_value = (
+            self.mock_generated_questions()
+        )
+
         response = self.client.post(
             f"/api/jobs/{self.job.id}/interview/"
         )
@@ -390,7 +551,17 @@ class InterviewAPITestCase(TestCase):
             404,
         )
 
-    def test_answer_requires_transcript_or_audio(self):
+    @patch(
+        "interviews.views.AIService"
+    )
+    def test_answer_requires_transcript_or_audio(
+        self,
+        mock_ai_service,
+    ):
+        mock_ai_service.return_value.generate_questions.return_value = (
+            self.mock_generated_questions()
+        )
+
         response = self.client.post(
             f"/api/jobs/{self.job.id}/interview/"
         )
@@ -422,7 +593,21 @@ class InterviewAPITestCase(TestCase):
             "transcript or audio is required",
         )
 
-    def test_completing_interview_creates_scores_and_result(self):
+    @patch(
+        "interviews.views.AIService"
+    )
+    def test_completing_interview_creates_scores_and_result(
+        self,
+        mock_ai_service,
+    ):
+        mock_ai_service.return_value.generate_questions.return_value = (
+            self.mock_generated_questions()
+        )
+
+        mock_ai_service.return_value.score_interview.return_value = (
+            self.mock_interview_score()
+        )
+
         response = self.client.post(
             f"/api/jobs/{self.job.id}/interview/"
         )
@@ -486,7 +671,21 @@ class InterviewAPITestCase(TestCase):
             ).exists()
         )
 
-    def test_completed_interview_cannot_accept_more_answers(self):
+    @patch(
+        "interviews.views.AIService"
+    )
+    def test_completed_interview_cannot_accept_more_answers(
+        self,
+        mock_ai_service,
+    ):
+        mock_ai_service.return_value.generate_questions.return_value = (
+            self.mock_generated_questions()
+        )
+
+        mock_ai_service.return_value.score_interview.return_value = (
+            self.mock_interview_score()
+        )
+
         response = self.client.post(
             f"/api/jobs/{self.job.id}/interview/"
         )
@@ -528,7 +727,21 @@ class InterviewAPITestCase(TestCase):
             "Interview link has already been used",
         )
 
-    def test_result_endpoint_returns_completed_result(self):
+    @patch(
+        "interviews.views.AIService"
+    )
+    def test_result_endpoint_returns_completed_result(
+        self,
+        mock_ai_service,
+    ):
+        mock_ai_service.return_value.generate_questions.return_value = (
+            self.mock_generated_questions()
+        )
+
+        mock_ai_service.return_value.score_interview.return_value = (
+            self.mock_interview_score()
+        )
+
         response = self.client.post(
             f"/api/jobs/{self.job.id}/interview/"
         )
@@ -544,7 +757,9 @@ class InterviewAPITestCase(TestCase):
                 f"/api/interview/{token}/answer/",
                 {
                     "question_id": question.id,
-                    "transcript": "I have relevant experience.",
+                    "transcript": (
+                        "I have relevant experience."
+                    ),
                 },
                 format="json",
             )
@@ -593,4 +808,3 @@ class InterviewAPITestCase(TestCase):
             response.data["error"],
             "Interview link has expired",
         )
-

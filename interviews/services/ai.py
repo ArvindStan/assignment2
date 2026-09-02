@@ -1,413 +1,374 @@
-from typing import List, TypedDict
+from typing import TypedDict
 
-from langchain_core.runnables import RunnableLambda
+from django.conf import settings
+from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, Field
 
 
 class GeneratedQuestion(BaseModel):
-    question: str = Field(description="The interview question")
-    skill_id: str = Field(description="The skill ID being tested")
+    skill_id: str = Field(
+        description="The skill_id this question evaluates."
+    )
+    question: str = Field(
+        description="A technical interview question for the skill."
+    )
 
 
 class GeneratedQuestions(BaseModel):
-    questions: List[GeneratedQuestion]
+    questions: list[GeneratedQuestion] = Field(
+        min_length=5,
+        max_length=5,
+        description="Exactly five generated interview questions.",
+    )
 
 
-class ScoredSkill(BaseModel):
-    skill_id: str
-    rating: int = Field(ge=1, le=5)
-    evidence: str
+class SkillEvaluation(BaseModel):
+    skill_id: str = Field(
+        description="The skill being evaluated."
+    )
+    rating: int = Field(
+        ge=1,
+        le=5,
+        description="Candidate rating from 1 to 5.",
+    )
+    evidence: str = Field(
+        description=(
+            "Brief explanation based on the candidate's "
+            "actual transcript."
+        )
+    )
 
 
 class InterviewScore(BaseModel):
-    skills: List[ScoredSkill]
-    fit_score: str
-    summary: str
+    skills: list[SkillEvaluation] = Field(
+        description="Evaluation for every required skill."
+    )
+    fit_score: str = Field(
+        description=(
+            "Overall candidate fit. Must be High, Medium, or Low."
+        )
+    )
+    summary: str = Field(
+        description="Brief overall interview summary."
+    )
 
 
 class QuestionGenerationState(TypedDict):
-    skills: list
-    result: GeneratedQuestions
+    skills: list[dict]
+    result: GeneratedQuestions | None
 
 
-class ScoringState(TypedDict):
-    skills: list
-    transcripts: dict
-    result: InterviewScore
-
-
-def _generate_questions(data: QuestionGenerationState):
-    skills = data["skills"]
-
-    questions = []
-
-    for skill in skills[:5]:
-        questions.append(
-            GeneratedQuestion(
-                question=(
-                    f"Can you explain your experience with "
-                    f"{skill.name} and describe a real-world problem "
-                    f"where you used it?"
-                ),
-                skill_id=skill.skill_id,
-            )
-        )
-
-    index = 0
-
-    while len(questions) < 5:
-        skill = skills[index % len(skills)]
-
-        questions.append(
-            GeneratedQuestion(
-                question=(
-                    f"Describe a challenging situation involving "
-                    f"{skill.name}. How did you approach and solve it?"
-                ),
-                skill_id=skill.skill_id,
-            )
-        )
-
-        index += 1
-
-    return {
-        "skills": skills,
-        "result": GeneratedQuestions(
-            questions=questions[:5]
-        ),
-    }
-
-
-def _score_interview(data: ScoringState):
-    skills = data["skills"]
-    transcripts = data["transcripts"]
-
-    scores = []
-
-    for skill in skills:
-        transcript_text = transcripts.get(
-            skill.skill_id,
-            "",
-        ).strip()
-
-        if not transcript_text:
-            rating = 1
-            evidence = "No transcript was provided."
-
-        else:
-            word_count = len(transcript_text.split())
-
-            if word_count >= 80:
-                rating = 5
-                evidence = (
-                    f"Candidate provided a detailed response demonstrating "
-                    f"experience with {skill.name}."
-                )
-            elif word_count >= 40:
-                rating = 4
-                evidence = (
-                    f"Candidate provided a relevant response describing "
-                    f"experience with {skill.name}."
-                )
-            elif word_count >= 20:
-                rating = 3
-                evidence = (
-                    f"Candidate provided a basic response related to "
-                    f"{skill.name}."
-                )
-            else:
-                rating = 2
-                evidence = (
-                    f"Candidate mentioned {skill.name}, but the response "
-                    f"contained limited supporting detail."
-                )
-
-        scores.append(
-            ScoredSkill(
-                skill_id=skill.skill_id,
-                rating=rating,
-                evidence=evidence,
-            )
-        )
-
-    average = sum(
-        score.rating for score in scores
-    ) / len(scores)
-
-    if average >= 4:
-        fit_score = "High"
-    elif average >= 3:
-        fit_score = "Medium"
-    else:
-        fit_score = "Low"
-
-    return {
-        "skills": skills,
-        "transcripts": transcripts,
-        "result": InterviewScore(
-            skills=scores,
-            fit_score=fit_score,
-            summary=(
-                "The candidate completed the interview.\n"
-                f"The candidate demonstrated an average skill rating "
-                f"of {average:.1f}/5.\n"
-                f"Overall fit was assessed as {fit_score}."
-            ),
-        ),
-    }
+class InterviewScoringState(TypedDict):
+    skills: list[dict]
+    transcripts: dict[str, str]
+    result: InterviewScore | None
 
 
 class AIService:
     """
-    AI orchestration layer.
-
-    LangGraph is used to define the workflow while LangChain
-    RunnableLambda provides the executable processing nodes.
-
-    The current nodes contain deterministic local logic so the
-    assignment can run without an external LLM or API key.
+    Real AI service using OpenAI, LangChain, LangGraph,
+    and Pydantic structured output.
     """
 
     def __init__(self):
-        question_node = RunnableLambda(
-            _generate_questions
+        if not settings.OPENAI_API_KEY:
+            raise ValueError(
+                "OPENAI_API_KEY is not configured. "
+                "Add it to your .env file."
+            )
+
+        self.llm = ChatOpenAI(
+            model=settings.OPENAI_MODEL,
+            api_key=settings.OPENAI_API_KEY,
+            temperature=0.3,
         )
 
-        question_graph = StateGraph(
-            QuestionGenerationState
+        self.question_graph = (
+            self._build_question_generation_graph()
         )
 
-        question_graph.add_node(
+        self.scoring_graph = (
+            self._build_interview_scoring_graph()
+        )
+
+    def _build_question_generation_graph(self):
+        graph = StateGraph(QuestionGenerationState)
+
+        graph.add_node(
             "generate_questions",
-            question_node,
+            self._generate_questions_node,
         )
 
-        question_graph.add_edge(
+        graph.add_edge(
             START,
             "generate_questions",
         )
 
-        question_graph.add_edge(
+        graph.add_edge(
             "generate_questions",
             END,
         )
 
-        self.question_graph = question_graph.compile()
+        return graph.compile()
 
-        scoring_node = RunnableLambda(
-            _score_interview
-        )
+    def _build_interview_scoring_graph(self):
+        graph = StateGraph(InterviewScoringState)
 
-        scoring_graph = StateGraph(
-            ScoringState
-        )
-
-        scoring_graph.add_node(
+        graph.add_node(
             "score_interview",
-            scoring_node,
+            self._score_interview_node,
         )
 
-        scoring_graph.add_edge(
+        graph.add_edge(
             START,
             "score_interview",
         )
 
-        scoring_graph.add_edge(
+        graph.add_edge(
             "score_interview",
             END,
         )
 
-        self.scoring_graph = scoring_graph.compile()
+        return graph.compile()
+
+    def _generate_questions_node(
+        self,
+        state: QuestionGenerationState,
+    ):
+        structured_llm = self.llm.with_structured_output(
+            GeneratedQuestions
+        )
+
+        skills_text = "\n".join(
+            [
+                (
+                    f"- skill_id: {skill['skill_id']}\n"
+                    f"  name: {skill['name']}\n"
+                    f"  dimension: {skill['dimension']}"
+                )
+                for skill in state["skills"]
+            ]
+        )
+
+        system_message = SystemMessage(
+            content=(
+                "You are an expert technical interviewer. "
+                "Generate exactly five high-quality technical "
+                "interview questions.\n\n"
+                "Rules:\n"
+                "1. Questions must be relevant to the provided skills.\n"
+                "2. Questions should assess practical knowledge, "
+                "reasoning, and real-world experience.\n"
+                "3. Do not generate generic HR questions.\n"
+                "4. Every question must reference one of the provided "
+                "skill_id values.\n"
+                "5. Use the exact skill_id values provided.\n"
+                "6. Return exactly five questions.\n"
+                "7. Distribute questions across the skills as fairly "
+                "as possible."
+            )
+        )
+
+        human_message = HumanMessage(
+            content=(
+                "Generate five interview questions for these skills:\n\n"
+                f"{skills_text}"
+            )
+        )
+
+        result = structured_llm.invoke(
+            [
+                system_message,
+                human_message,
+            ]
+        )
+
+        return {"result": result}
+
+    def _score_interview_node(
+        self,
+        state: InterviewScoringState,
+    ):
+        structured_llm = self.llm.with_structured_output(
+            InterviewScore
+        )
+
+        skills_text = "\n".join(
+            [
+                (
+                    f"- skill_id: {skill['skill_id']}\n"
+                    f"  name: {skill['name']}\n"
+                    f"  dimension: {skill['dimension']}"
+                )
+                for skill in state["skills"]
+            ]
+        )
+
+        transcripts_text = "\n\n".join(
+            [
+                (
+                    f"Skill ID: {skill_id}\n"
+                    f"Candidate transcript:\n{transcript}"
+                )
+                for skill_id, transcript in state[
+                    "transcripts"
+                ].items()
+            ]
+        )
+
+        system_message = SystemMessage(
+            content=(
+                "You are an expert technical interviewer evaluating "
+                "candidate interview transcripts.\n\n"
+                "Evaluate the semantic quality and technical correctness "
+                "of the candidate's answers.\n\n"
+                "Do NOT score based on transcript length or word count.\n"
+                "Score based on:\n"
+                "- Technical correctness\n"
+                "- Depth of understanding\n"
+                "- Practical experience\n"
+                "- Quality of reasoning\n"
+                "- Relevance to the required skill\n\n"
+                "For every required skill, return a rating from 1 to 5:\n"
+                "1 = Very weak or no demonstrated understanding\n"
+                "2 = Basic understanding with significant gaps\n"
+                "3 = Adequate working knowledge\n"
+                "4 = Strong practical understanding\n"
+                "5 = Expert-level understanding\n\n"
+                "Fit score must be exactly one of: High, Medium, Low.\n"
+                "Provide evidence based only on the candidate transcripts."
+            )
+        )
+
+        human_message = HumanMessage(
+            content=(
+                "Required skills:\n\n"
+                f"{skills_text}\n\n"
+                "Candidate transcripts:\n\n"
+                f"{transcripts_text}\n\n"
+                "Evaluate every required skill, even if the candidate "
+                "provided weak or missing evidence."
+            )
+        )
+
+        result = structured_llm.invoke(
+            [
+                system_message,
+                human_message,
+            ]
+        )
+
+        return {"result": result}
 
     def generate_questions(self, skills):
-        """
-        Generate exactly five questions through the
-        LangGraph question-generation workflow.
-        """
+        skill_data = [
+            {
+                "skill_id": skill.skill_id,
+                "name": skill.name,
+                "dimension": skill.dimension,
+            }
+            for skill in skills
+        ]
 
-        result = self.question_graph.invoke({
-            "skills": skills,
-        })
+        result = self.question_graph.invoke(
+            {
+                "skills": skill_data,
+                "result": None,
+            }
+        )
 
-        return result["result"]
+        generated = result.get("result")
+
+        if not generated:
+            raise ValueError(
+                "AI failed to generate interview questions."
+            )
+
+        valid_skill_ids = {
+            skill["skill_id"]
+            for skill in skill_data
+        }
+
+        invalid_questions = [
+            question
+            for question in generated.questions
+            if question.skill_id not in valid_skill_ids
+        ]
+
+        if invalid_questions:
+            raise ValueError(
+                "AI generated a question for an unknown skill."
+            )
+
+        if len(generated.questions) != 5:
+            raise ValueError(
+                "AI must generate exactly five questions."
+            )
+
+        return generated
 
     def score_interview(self, skills, transcripts):
-        """
-        Score the interview through the LangGraph
-        scoring workflow.
-        """
+        skill_data = [
+            {
+                "skill_id": skill.skill_id,
+                "name": skill.name,
+                "dimension": skill.dimension,
+            }
+            for skill in skills
+        ]
 
-        result = self.scoring_graph.invoke({
-            "skills": skills,
-            "transcripts": transcripts,
-        })
+        result = self.scoring_graph.invoke(
+            {
+                "skills": skill_data,
+                "transcripts": transcripts,
+                "result": None,
+            }
+        )
 
-        return result["result"]
+        score = result.get("result")
 
+        if not score:
+            raise ValueError(
+                "AI failed to score the interview."
+            )
 
+        valid_skill_ids = {
+            skill["skill_id"]
+            for skill in skill_data
+        }
 
+        returned_skill_ids = {
+            skill_score.skill_id
+            for skill_score in score.skills
+        }
 
+        unknown_skill_ids = (
+            returned_skill_ids - valid_skill_ids
+        )
 
+        if unknown_skill_ids:
+            raise ValueError(
+                "AI returned scores for unknown skills."
+            )
 
+        missing_skill_ids = (
+            valid_skill_ids - returned_skill_ids
+        )
 
+        if missing_skill_ids:
+            raise ValueError(
+                "AI did not score every required skill."
+            )
 
+        if score.fit_score not in {
+            "High",
+            "Medium",
+            "Low",
+        }:
+            raise ValueError(
+                "AI returned an invalid fit score."
+            )
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# from typing import List
-
-# from pydantic import BaseModel, Field
-
-
-# class GeneratedQuestion(BaseModel):
-#     question: str = Field(description="The interview question")
-#     skill_id: str = Field(description="The skill ID being tested")
-
-
-# class GeneratedQuestions(BaseModel):
-#     questions: List[GeneratedQuestion]
-
-
-# class ScoredSkill(BaseModel):
-#     skill_id: str
-#     rating: int = Field(ge=1, le=5)
-#     evidence: str
-
-
-# class InterviewScore(BaseModel):
-#     skills: List[ScoredSkill]
-#     fit_score: str
-#     summary: str
-
-
-# class AIService:
-
-#     def generate_questions(self, skills):
-#         """
-#         Generate exactly 5 questions.
-
-#         Mock implementation for local development.
-#         """
-
-#         questions = []
-
-#         for skill in skills[:5]:
-#             questions.append(
-#                 GeneratedQuestion(
-#                     question=(
-#                         f"Can you explain your experience with "
-#                         f"{skill.name} and describe a real-world problem "
-#                         f"where you used it?"
-#                     ),
-#                     skill_id=skill.skill_id,
-#                 )
-#             )
-
-#         index = 0
-
-#         while len(questions) < 5:
-#             skill = skills[index % len(skills)]
-
-#             questions.append(
-#                 GeneratedQuestion(
-#                     question=(
-#                         f"Describe a challenging situation involving "
-#                         f"{skill.name}. How did you approach and solve it?"
-#                     ),
-#                     skill_id=skill.skill_id,
-#                 )
-#             )
-
-#             index += 1
-
-#         return GeneratedQuestions(
-#             questions=questions[:5]
-#         )
-
-#     def score_interview(self, skills, transcripts):
-#         """
-#         Score each required skill based on the candidate's transcript.
-
-#         Local deterministic implementation for development/testing.
-#         """
-
-#         scores = []
-
-#         for skill in skills:
-#             transcript_text = transcripts.get(skill.skill_id, "").strip()
-
-#             if not transcript_text:
-#                 rating = 1
-#                 evidence = "No transcript was provided."
-
-#             else:
-#                 word_count = len(transcript_text.split())
-
-#                 if word_count >= 80:
-#                     rating = 5
-#                     evidence = (
-#                         f"Candidate provided a detailed response demonstrating "
-#                         f"experience with {skill.name}."
-#                     )
-#                 elif word_count >= 40:
-#                     rating = 4
-#                     evidence = (
-#                         f"Candidate provided a relevant response describing "
-#                         f"experience with {skill.name}."
-#                     )
-#                 elif word_count >= 20:
-#                     rating = 3
-#                     evidence = (
-#                         f"Candidate provided a basic response related to "
-#                         f"{skill.name}."
-#                     )
-#                 else:
-#                     rating = 2
-#                     evidence = (
-#                         f"Candidate mentioned {skill.name}, but the response "
-#                         f"contained limited supporting detail."
-#                     )
-
-#             scores.append(
-#                 ScoredSkill(
-#                     skill_id=skill.skill_id,
-#                     rating=rating,
-#                     evidence=evidence,
-#                 )
-#             )
-
-#         average = sum(score.rating for score in scores) / len(scores)
-
-#         if average >= 4:
-#             fit_score = "High"
-#         elif average >= 3:
-#             fit_score = "Medium"
-#         else:
-#             fit_score = "Low"
-
-#         return InterviewScore(
-#             skills=scores,
-#             fit_score=fit_score,
-#             summary=(
-#                 "The candidate completed the interview.\n"
-#                 f"The candidate demonstrated an average skill rating "
-#                 f"of {average:.1f}/5.\n"
-#                 f"Overall fit was assessed as {fit_score}."
-#             ),
-#         )
+        return score
