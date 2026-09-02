@@ -1,5 +1,5 @@
 from datetime import timedelta
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
@@ -17,6 +17,7 @@ from .models import (
     SkillScore,
 )
 from .services.ai import (
+    AIService,
     GeneratedQuestion,
     GeneratedQuestions,
     InterviewScore,
@@ -145,9 +146,386 @@ class InterviewAPITestCase(TestCase):
             ),
         )
 
-    @patch(
-        "interviews.views.AIService"
-    )
+    # ------------------------------------------------------------------
+    # AI SERVICE TESTS
+    # ------------------------------------------------------------------
+
+    @patch("interviews.services.ai.ChatOpenAI")
+    @patch("interviews.services.ai.settings.OPENAI_API_KEY", "test-key")
+    def test_real_ai_service_generates_structured_questions(
+        self,
+        mock_chat_openai,
+    ):
+        mock_llm = MagicMock()
+
+        mock_structured_llm = MagicMock()
+        mock_structured_llm.invoke.return_value = (
+            self.mock_generated_questions()
+        )
+
+        mock_llm.with_structured_output.return_value = (
+            mock_structured_llm
+        )
+
+        mock_chat_openai.return_value = mock_llm
+
+        service = AIService()
+
+        result = service.generate_questions(
+            [
+                self.python,
+                self.postgres,
+                self.api_design,
+            ]
+        )
+
+        self.assertIsInstance(
+            result,
+            GeneratedQuestions,
+        )
+
+        self.assertEqual(
+            len(result.questions),
+            5,
+        )
+
+        for question in result.questions:
+            self.assertIsInstance(
+                question,
+                GeneratedQuestion,
+            )
+
+            self.assertTrue(
+                question.question
+            )
+
+            self.assertIn(
+                question.skill_id,
+                {
+                    "tl.python",
+                    "tl.postgres",
+                    "kn.apidesign",
+                },
+            )
+
+        mock_llm.with_structured_output.assert_called_once_with(
+            GeneratedQuestions
+        )
+
+        mock_structured_llm.invoke.assert_called_once()
+
+    @patch("interviews.services.ai.ChatOpenAI")
+    @patch("interviews.services.ai.settings.OPENAI_API_KEY", "test-key")
+    def test_real_ai_service_scores_transcripts_semantically(
+        self,
+        mock_chat_openai,
+    ):
+        mock_llm = MagicMock()
+
+        mock_structured_llm = MagicMock()
+        mock_structured_llm.invoke.return_value = (
+            self.mock_interview_score()
+        )
+
+        mock_llm.with_structured_output.return_value = (
+            mock_structured_llm
+        )
+
+        mock_chat_openai.return_value = mock_llm
+
+        service = AIService()
+
+        transcripts = {
+            "tl.python": (
+                "I have designed Python services using Django and "
+                "FastAPI. I used PostgreSQL for persistence and "
+                "Redis for caching. I also profiled slow endpoints "
+                "and optimized database queries."
+            ),
+            "tl.postgres": (
+                "I have worked with PostgreSQL indexes, query plans, "
+                "transactions, and connection pooling in production."
+            ),
+            "kn.apidesign": (
+                "I have designed REST APIs using pagination, "
+                "versioning, authentication, idempotency, and "
+                "consistent error responses."
+            ),
+        }
+
+        result = service.score_interview(
+            skills=[
+                self.python,
+                self.postgres,
+                self.api_design,
+            ],
+            transcripts=transcripts,
+        )
+
+        self.assertIsInstance(
+            result,
+            InterviewScore,
+        )
+
+        self.assertEqual(
+            len(result.skills),
+            3,
+        )
+
+        self.assertEqual(
+            result.fit_score,
+            "High",
+        )
+
+        for skill_score in result.skills:
+            self.assertGreaterEqual(
+                skill_score.rating,
+                1,
+            )
+
+            self.assertLessEqual(
+                skill_score.rating,
+                5,
+            )
+
+            self.assertTrue(
+                skill_score.evidence
+            )
+
+        mock_llm.with_structured_output.assert_called_once_with(
+            InterviewScore
+        )
+
+        mock_structured_llm.invoke.assert_called_once()
+
+        messages = mock_structured_llm.invoke.call_args.args[0]
+
+        combined_prompt = "\n".join(
+            message.content
+            for message in messages
+        )
+
+        self.assertIn(
+            "Technical correctness",
+            combined_prompt,
+        )
+
+        self.assertIn(
+            "Depth of understanding",
+            combined_prompt,
+        )
+
+        self.assertIn(
+            "Do NOT score based on transcript length or word count",
+            combined_prompt,
+        )
+
+        self.assertIn(
+            transcripts["tl.python"],
+            combined_prompt,
+        )
+
+    @patch("interviews.services.ai.ChatOpenAI")
+    @patch("interviews.services.ai.settings.OPENAI_API_KEY", "test-key")
+    def test_question_generation_rejects_unknown_skill(
+        self,
+        mock_chat_openai,
+    ):
+        mock_llm = MagicMock()
+
+        invalid_questions = GeneratedQuestions(
+            questions=[
+                GeneratedQuestion(
+                    skill_id="tl.python",
+                    question="Explain Python decorators.",
+                ),
+                GeneratedQuestion(
+                    skill_id="tl.python",
+                    question="Explain Python generators.",
+                ),
+                GeneratedQuestion(
+                    skill_id="tl.postgres",
+                    question="Explain PostgreSQL indexes.",
+                ),
+                GeneratedQuestion(
+                    skill_id="kn.apidesign",
+                    question="Explain API pagination.",
+                ),
+                GeneratedQuestion(
+                    skill_id="unknown.skill",
+                    question="Explain something unrelated.",
+                ),
+            ]
+        )
+
+        mock_structured_llm = MagicMock()
+        mock_structured_llm.invoke.return_value = (
+            invalid_questions
+        )
+
+        mock_llm.with_structured_output.return_value = (
+            mock_structured_llm
+        )
+
+        mock_chat_openai.return_value = mock_llm
+
+        service = AIService()
+
+        with self.assertRaisesMessage(
+            ValueError,
+            "AI generated a question for an unknown skill.",
+        ):
+            service.generate_questions(
+                [
+                    self.python,
+                    self.postgres,
+                    self.api_design,
+                ]
+            )
+
+    @patch("interviews.services.ai.ChatOpenAI")
+    @patch("interviews.services.ai.settings.OPENAI_API_KEY", "test-key")
+    def test_interview_scoring_rejects_unknown_skill(
+        self,
+        mock_chat_openai,
+    ):
+        mock_llm = MagicMock()
+
+        invalid_score = InterviewScore(
+            skills=[
+                SkillEvaluation(
+                    skill_id="tl.python",
+                    rating=4,
+                    evidence="Strong Python knowledge.",
+                ),
+                SkillEvaluation(
+                    skill_id="tl.postgres",
+                    rating=4,
+                    evidence="Strong PostgreSQL knowledge.",
+                ),
+                SkillEvaluation(
+                    skill_id="kn.apidesign",
+                    rating=4,
+                    evidence="Strong API design knowledge.",
+                ),
+                SkillEvaluation(
+                    skill_id="unknown.skill",
+                    rating=5,
+                    evidence="Unknown skill.",
+                ),
+            ],
+            fit_score="High",
+            summary="Strong candidate.",
+        )
+
+        mock_structured_llm = MagicMock()
+        mock_structured_llm.invoke.return_value = (
+            invalid_score
+        )
+
+        mock_llm.with_structured_output.return_value = (
+            mock_structured_llm
+        )
+
+        mock_chat_openai.return_value = mock_llm
+
+        service = AIService()
+
+        with self.assertRaisesMessage(
+            ValueError,
+            "AI returned scores for unknown skills.",
+        ):
+            service.score_interview(
+                skills=[
+                    self.python,
+                    self.postgres,
+                    self.api_design,
+                ],
+                transcripts={
+                    "tl.python": "Python answer.",
+                    "tl.postgres": "PostgreSQL answer.",
+                    "kn.apidesign": "API answer.",
+                },
+            )
+
+    @patch("interviews.services.ai.ChatOpenAI")
+    @patch("interviews.services.ai.settings.OPENAI_API_KEY", "test-key")
+    def test_interview_scoring_rejects_missing_skill(
+        self,
+        mock_chat_openai,
+    ):
+        mock_llm = MagicMock()
+
+        incomplete_score = InterviewScore(
+            skills=[
+                SkillEvaluation(
+                    skill_id="tl.python",
+                    rating=4,
+                    evidence="Strong Python knowledge.",
+                ),
+                SkillEvaluation(
+                    skill_id="tl.postgres",
+                    rating=4,
+                    evidence="Strong PostgreSQL knowledge.",
+                ),
+            ],
+            fit_score="Medium",
+            summary="Some skills demonstrated.",
+        )
+
+        mock_structured_llm = MagicMock()
+        mock_structured_llm.invoke.return_value = (
+            incomplete_score
+        )
+
+        mock_llm.with_structured_output.return_value = (
+            mock_structured_llm
+        )
+
+        mock_chat_openai.return_value = mock_llm
+
+        service = AIService()
+
+        with self.assertRaisesMessage(
+            ValueError,
+            "AI did not score every required skill.",
+        ):
+            service.score_interview(
+                skills=[
+                    self.python,
+                    self.postgres,
+                    self.api_design,
+                ],
+                transcripts={
+                    "tl.python": "Python answer.",
+                    "tl.postgres": "PostgreSQL answer.",
+                    "kn.apidesign": "API answer.",
+                },
+            )
+
+    @patch("interviews.services.ai.ChatOpenAI")
+    @patch("interviews.services.ai.settings.OPENAI_API_KEY", "test-key")
+    def test_ai_service_requires_openai_api_key(
+        self,
+        mock_chat_openai,
+    ):
+        with patch(
+            "interviews.services.ai.settings.OPENAI_API_KEY",
+            "",
+        ):
+            with self.assertRaisesMessage(
+                ValueError,
+                "OPENAI_API_KEY is not configured.",
+            ):
+                AIService()
+
+        mock_chat_openai.assert_not_called()
+
+    # ------------------------------------------------------------------
+    # API TESTS
+    # ------------------------------------------------------------------
+
+    @patch("interviews.views.AIService")
     def test_ai_service_generates_structured_questions(
         self,
         mock_ai_service,
@@ -172,12 +550,15 @@ class InterviewAPITestCase(TestCase):
         )
 
         for question in result.questions:
-            self.assertTrue(question.question)
-            self.assertTrue(question.skill_id)
+            self.assertTrue(
+                question.question
+            )
 
-    @patch(
-        "interviews.views.AIService"
-    )
+            self.assertTrue(
+                question.skill_id
+            )
+
+    @patch("interviews.views.AIService")
     def test_ai_service_returns_structured_interview_score(
         self,
         mock_ai_service,
@@ -250,9 +631,7 @@ class InterviewAPITestCase(TestCase):
             3,
         )
 
-    @patch(
-        "interviews.views.AIService"
-    )
+    @patch("interviews.views.AIService")
     def test_create_job(self, mock_ai_service):
         response = self.client.post(
             "/api/jobs/",
@@ -287,9 +666,7 @@ class InterviewAPITestCase(TestCase):
             1,
         )
 
-    @patch(
-        "interviews.views.AIService"
-    )
+    @patch("interviews.views.AIService")
     def test_generate_interview_creates_five_questions(
         self,
         mock_ai_service,
@@ -337,9 +714,7 @@ class InterviewAPITestCase(TestCase):
             [1, 2, 3, 4, 5],
         )
 
-    @patch(
-        "interviews.views.AIService"
-    )
+    @patch("interviews.views.AIService")
     def test_generate_interview_does_not_duplicate(
         self,
         mock_ai_service,
@@ -378,9 +753,7 @@ class InterviewAPITestCase(TestCase):
             1,
         )
 
-    @patch(
-        "interviews.views.AIService"
-    )
+    @patch("interviews.views.AIService")
     def test_candidate_can_get_interview(
         self,
         mock_ai_service,
@@ -414,9 +787,7 @@ class InterviewAPITestCase(TestCase):
             5,
         )
 
-    @patch(
-        "interviews.views.AIService"
-    )
+    @patch("interviews.views.AIService")
     def test_candidate_can_submit_answer(
         self,
         mock_ai_service,
@@ -475,9 +846,7 @@ class InterviewAPITestCase(TestCase):
             1,
         )
 
-    @patch(
-        "interviews.views.AIService"
-    )
+    @patch("interviews.views.AIService")
     def test_candidate_can_submit_audio_answer(
         self,
         mock_ai_service,
@@ -551,9 +920,7 @@ class InterviewAPITestCase(TestCase):
             404,
         )
 
-    @patch(
-        "interviews.views.AIService"
-    )
+    @patch("interviews.views.AIService")
     def test_answer_requires_transcript_or_audio(
         self,
         mock_ai_service,
@@ -593,9 +960,7 @@ class InterviewAPITestCase(TestCase):
             "transcript or audio is required",
         )
 
-    @patch(
-        "interviews.views.AIService"
-    )
+    @patch("interviews.views.AIService")
     def test_completing_interview_creates_scores_and_result(
         self,
         mock_ai_service,
@@ -671,9 +1036,7 @@ class InterviewAPITestCase(TestCase):
             ).exists()
         )
 
-    @patch(
-        "interviews.views.AIService"
-    )
+    @patch("interviews.views.AIService")
     def test_completed_interview_cannot_accept_more_answers(
         self,
         mock_ai_service,
@@ -727,9 +1090,7 @@ class InterviewAPITestCase(TestCase):
             "Interview link has already been used",
         )
 
-    @patch(
-        "interviews.views.AIService"
-    )
+    @patch("interviews.views.AIService")
     def test_result_endpoint_returns_completed_result(
         self,
         mock_ai_service,

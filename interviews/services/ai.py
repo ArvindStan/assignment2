@@ -1,7 +1,7 @@
 from typing import TypedDict
 
 from django.conf import settings
-from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, Field
@@ -55,21 +55,40 @@ class InterviewScore(BaseModel):
     )
 
 
-class QuestionGenerationState(TypedDict):
+class QuestionGenerationState(TypedDict, total=False):
     skills: list[dict]
+    skills_text: str
     result: GeneratedQuestions | None
+    validation_error: str | None
 
 
-class InterviewScoringState(TypedDict):
+class InterviewScoringState(TypedDict, total=False):
     skills: list[dict]
+    skills_text: str
     transcripts: dict[str, str]
+    transcripts_text: str
     result: InterviewScore | None
+    validation_error: str | None
 
 
 class AIService:
     """
     Real AI service using OpenAI, LangChain, LangGraph,
     and Pydantic structured output.
+
+    Question generation graph:
+        START
+          -> prepare_question_context
+          -> generate_questions
+          -> validate_questions
+          -> END
+
+    Interview scoring graph:
+        START
+          -> prepare_scoring_context
+          -> evaluate_transcripts
+          -> validate_scores
+          -> END
     """
 
     def __init__(self):
@@ -93,54 +112,54 @@ class AIService:
             self._build_interview_scoring_graph()
         )
 
+    # ------------------------------------------------------------------
+    # Question generation graph
+    # ------------------------------------------------------------------
+
     def _build_question_generation_graph(self):
         graph = StateGraph(QuestionGenerationState)
+
+        graph.add_node(
+            "prepare_question_context",
+            self._prepare_question_context,
+        )
 
         graph.add_node(
             "generate_questions",
             self._generate_questions_node,
         )
 
-        graph.add_edge(
-            START,
-            "generate_questions",
-        )
-
-        graph.add_edge(
-            "generate_questions",
-            END,
-        )
-
-        return graph.compile()
-
-    def _build_interview_scoring_graph(self):
-        graph = StateGraph(InterviewScoringState)
-
         graph.add_node(
-            "score_interview",
-            self._score_interview_node,
+            "validate_questions",
+            self._validate_questions_node,
         )
 
         graph.add_edge(
             START,
-            "score_interview",
+            "prepare_question_context",
         )
 
         graph.add_edge(
-            "score_interview",
+            "prepare_question_context",
+            "generate_questions",
+        )
+
+        graph.add_edge(
+            "generate_questions",
+            "validate_questions",
+        )
+
+        graph.add_edge(
+            "validate_questions",
             END,
         )
 
         return graph.compile()
 
-    def _generate_questions_node(
+    def _prepare_question_context(
         self,
         state: QuestionGenerationState,
     ):
-        structured_llm = self.llm.with_structured_output(
-            GeneratedQuestions
-        )
-
         skills_text = "\n".join(
             [
                 (
@@ -150,6 +169,19 @@ class AIService:
                 )
                 for skill in state["skills"]
             ]
+        )
+
+        return {
+            "skills_text": skills_text,
+            "validation_error": None,
+        }
+
+    def _generate_questions_node(
+        self,
+        state: QuestionGenerationState,
+    ):
+        structured_llm = self.llm.with_structured_output(
+            GeneratedQuestions
         )
 
         system_message = SystemMessage(
@@ -174,7 +206,7 @@ class AIService:
         human_message = HumanMessage(
             content=(
                 "Generate five interview questions for these skills:\n\n"
-                f"{skills_text}"
+                f"{state['skills_text']}"
             )
         )
 
@@ -185,16 +217,94 @@ class AIService:
             ]
         )
 
-        return {"result": result}
+        return {
+            "result": result,
+        }
 
-    def _score_interview_node(
+    def _validate_questions_node(
+        self,
+        state: QuestionGenerationState,
+    ):
+        generated = state.get("result")
+
+        if not generated:
+            raise ValueError(
+                "AI failed to generate interview questions."
+            )
+
+        valid_skill_ids = {
+            skill["skill_id"]
+            for skill in state["skills"]
+        }
+
+        invalid_questions = [
+            question
+            for question in generated.questions
+            if question.skill_id not in valid_skill_ids
+        ]
+
+        if invalid_questions:
+            raise ValueError(
+                "AI generated a question for an unknown skill."
+            )
+
+        if len(generated.questions) != 5:
+            raise ValueError(
+                "AI must generate exactly five questions."
+            )
+
+        return {
+            "validation_error": None,
+        }
+
+    # ------------------------------------------------------------------
+    # Interview scoring graph
+    # ------------------------------------------------------------------
+
+    def _build_interview_scoring_graph(self):
+        graph = StateGraph(InterviewScoringState)
+
+        graph.add_node(
+            "prepare_scoring_context",
+            self._prepare_scoring_context,
+        )
+
+        graph.add_node(
+            "evaluate_transcripts",
+            self._score_interview_node,
+        )
+
+        graph.add_node(
+            "validate_scores",
+            self._validate_scores_node,
+        )
+
+        graph.add_edge(
+            START,
+            "prepare_scoring_context",
+        )
+
+        graph.add_edge(
+            "prepare_scoring_context",
+            "evaluate_transcripts",
+        )
+
+        graph.add_edge(
+            "evaluate_transcripts",
+            "validate_scores",
+        )
+
+        graph.add_edge(
+            "validate_scores",
+            END,
+        )
+
+        return graph.compile()
+
+    def _prepare_scoring_context(
         self,
         state: InterviewScoringState,
     ):
-        structured_llm = self.llm.with_structured_output(
-            InterviewScore
-        )
-
         skills_text = "\n".join(
             [
                 (
@@ -216,6 +326,20 @@ class AIService:
                     "transcripts"
                 ].items()
             ]
+        )
+
+        return {
+            "skills_text": skills_text,
+            "transcripts_text": transcripts_text,
+            "validation_error": None,
+        }
+
+    def _score_interview_node(
+        self,
+        state: InterviewScoringState,
+    ):
+        structured_llm = self.llm.with_structured_output(
+            InterviewScore
         )
 
         system_message = SystemMessage(
@@ -245,9 +369,9 @@ class AIService:
         human_message = HumanMessage(
             content=(
                 "Required skills:\n\n"
-                f"{skills_text}\n\n"
+                f"{state['skills_text']}\n\n"
                 "Candidate transcripts:\n\n"
-                f"{transcripts_text}\n\n"
+                f"{state['transcripts_text']}\n\n"
                 "Evaluate every required skill, even if the candidate "
                 "provided weak or missing evidence."
             )
@@ -260,74 +384,15 @@ class AIService:
             ]
         )
 
-        return {"result": result}
-
-    def generate_questions(self, skills):
-        skill_data = [
-            {
-                "skill_id": skill.skill_id,
-                "name": skill.name,
-                "dimension": skill.dimension,
-            }
-            for skill in skills
-        ]
-
-        result = self.question_graph.invoke(
-            {
-                "skills": skill_data,
-                "result": None,
-            }
-        )
-
-        generated = result.get("result")
-
-        if not generated:
-            raise ValueError(
-                "AI failed to generate interview questions."
-            )
-
-        valid_skill_ids = {
-            skill["skill_id"]
-            for skill in skill_data
+        return {
+            "result": result,
         }
 
-        invalid_questions = [
-            question
-            for question in generated.questions
-            if question.skill_id not in valid_skill_ids
-        ]
-
-        if invalid_questions:
-            raise ValueError(
-                "AI generated a question for an unknown skill."
-            )
-
-        if len(generated.questions) != 5:
-            raise ValueError(
-                "AI must generate exactly five questions."
-            )
-
-        return generated
-
-    def score_interview(self, skills, transcripts):
-        skill_data = [
-            {
-                "skill_id": skill.skill_id,
-                "name": skill.name,
-                "dimension": skill.dimension,
-            }
-            for skill in skills
-        ]
-
-        result = self.scoring_graph.invoke(
-            {
-                "skills": skill_data,
-                "transcripts": transcripts,
-                "result": None,
-            }
-        )
-
-        score = result.get("result")
+    def _validate_scores_node(
+        self,
+        state: InterviewScoringState,
+    ):
+        score = state.get("result")
 
         if not score:
             raise ValueError(
@@ -336,7 +401,7 @@ class AIService:
 
         valid_skill_ids = {
             skill["skill_id"]
-            for skill in skill_data
+            for skill in state["skills"]
         }
 
         returned_skill_ids = {
@@ -369,6 +434,67 @@ class AIService:
         }:
             raise ValueError(
                 "AI returned an invalid fit score."
+            )
+
+        return {
+            "validation_error": None,
+        }
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def generate_questions(self, skills):
+        skill_data = [
+            {
+                "skill_id": skill.skill_id,
+                "name": skill.name,
+                "dimension": skill.dimension,
+            }
+            for skill in skills
+        ]
+
+        result = self.question_graph.invoke(
+            {
+                "skills": skill_data,
+                "result": None,
+                "validation_error": None,
+            }
+        )
+
+        generated = result.get("result")
+
+        if not generated:
+            raise ValueError(
+                "AI failed to generate interview questions."
+            )
+
+        return generated
+
+    def score_interview(self, skills, transcripts):
+        skill_data = [
+            {
+                "skill_id": skill.skill_id,
+                "name": skill.name,
+                "dimension": skill.dimension,
+            }
+            for skill in skills
+        ]
+
+        result = self.scoring_graph.invoke(
+            {
+                "skills": skill_data,
+                "transcripts": transcripts,
+                "result": None,
+                "validation_error": None,
+            }
+        )
+
+        score = result.get("result")
+
+        if not score:
+            raise ValueError(
+                "AI failed to score the interview."
             )
 
         return score
