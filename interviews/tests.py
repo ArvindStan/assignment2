@@ -146,15 +146,13 @@ class InterviewAPITestCase(TestCase):
             ),
         )
 
-    # ------------------------------------------------------------------
-    # AI SERVICE TESTS
-    # ------------------------------------------------------------------
+  #AI TESTSS
 
-    @patch("interviews.services.ai.ChatOpenAI")
-    @patch("interviews.services.ai.settings.OPENAI_API_KEY", "test-key")
+    @patch("interviews.services.ai.ChatOllama")
+    @patch("interviews.services.ai.settings.AI_PROVIDER", "ollama")
     def test_real_ai_service_generates_structured_questions(
         self,
-        mock_chat_openai,
+        mock_chat_ollama,
     ):
         mock_llm = MagicMock()
 
@@ -167,7 +165,7 @@ class InterviewAPITestCase(TestCase):
             mock_structured_llm
         )
 
-        mock_chat_openai.return_value = mock_llm
+        mock_chat_ollama.return_value = mock_llm
 
         service = AIService()
 
@@ -214,11 +212,11 @@ class InterviewAPITestCase(TestCase):
 
         mock_structured_llm.invoke.assert_called_once()
 
-    @patch("interviews.services.ai.ChatOpenAI")
-    @patch("interviews.services.ai.settings.OPENAI_API_KEY", "test-key")
+    @patch("interviews.services.ai.ChatOllama")
+    @patch("interviews.services.ai.settings.AI_PROVIDER", "ollama")
     def test_real_ai_service_scores_transcripts_semantically(
         self,
-        mock_chat_openai,
+        mock_chat_ollama,
     ):
         mock_llm = MagicMock()
 
@@ -231,7 +229,7 @@ class InterviewAPITestCase(TestCase):
             mock_structured_llm
         )
 
-        mock_chat_openai.return_value = mock_llm
+        mock_chat_ollama.return_value = mock_llm
 
         service = AIService()
 
@@ -325,11 +323,11 @@ class InterviewAPITestCase(TestCase):
             combined_prompt,
         )
 
-    @patch("interviews.services.ai.ChatOpenAI")
-    @patch("interviews.services.ai.settings.OPENAI_API_KEY", "test-key")
+    @patch("interviews.services.ai.ChatOllama")
+    @patch("interviews.services.ai.settings.AI_PROVIDER", "ollama")
     def test_question_generation_rejects_unknown_skill(
         self,
-        mock_chat_openai,
+        mock_chat_ollama,
     ):
         mock_llm = MagicMock()
 
@@ -367,7 +365,7 @@ class InterviewAPITestCase(TestCase):
             mock_structured_llm
         )
 
-        mock_chat_openai.return_value = mock_llm
+        mock_chat_ollama.return_value = mock_llm
 
         service = AIService()
 
@@ -383,11 +381,11 @@ class InterviewAPITestCase(TestCase):
                 ]
             )
 
-    @patch("interviews.services.ai.ChatOpenAI")
-    @patch("interviews.services.ai.settings.OPENAI_API_KEY", "test-key")
+    @patch("interviews.services.ai.ChatOllama")
+    @patch("interviews.services.ai.settings.AI_PROVIDER", "ollama")
     def test_interview_scoring_rejects_unknown_skill(
         self,
-        mock_chat_openai,
+        mock_chat_ollama,
     ):
         mock_llm = MagicMock()
 
@@ -427,7 +425,7 @@ class InterviewAPITestCase(TestCase):
             mock_structured_llm
         )
 
-        mock_chat_openai.return_value = mock_llm
+        mock_chat_ollama.return_value = mock_llm
 
         service = AIService()
 
@@ -448,11 +446,11 @@ class InterviewAPITestCase(TestCase):
                 },
             )
 
-    @patch("interviews.services.ai.ChatOpenAI")
-    @patch("interviews.services.ai.settings.OPENAI_API_KEY", "test-key")
+    @patch("interviews.services.ai.ChatOllama")
+    @patch("interviews.services.ai.settings.AI_PROVIDER", "ollama")
     def test_interview_scoring_rejects_missing_skill(
         self,
-        mock_chat_openai,
+        mock_chat_ollama,
     ):
         mock_llm = MagicMock()
 
@@ -482,7 +480,7 @@ class InterviewAPITestCase(TestCase):
             mock_structured_llm
         )
 
-        mock_chat_openai.return_value = mock_llm
+        mock_chat_ollama.return_value = mock_llm
 
         service = AIService()
 
@@ -504,26 +502,21 @@ class InterviewAPITestCase(TestCase):
             )
 
     @patch("interviews.services.ai.ChatOpenAI")
-    @patch("interviews.services.ai.settings.OPENAI_API_KEY", "test-key")
+    @patch("interviews.services.ai.settings.OPENAI_API_KEY", "")
+    @patch("interviews.services.ai.settings.AI_PROVIDER", "openai")
     def test_ai_service_requires_openai_api_key(
         self,
         mock_chat_openai,
     ):
-        with patch(
-            "interviews.services.ai.settings.OPENAI_API_KEY",
-            "",
+        with self.assertRaisesMessage(
+            ValueError,
+            "OPENAI_API_KEY is not configured.",
         ):
-            with self.assertRaisesMessage(
-                ValueError,
-                "OPENAI_API_KEY is not configured.",
-            ):
-                AIService()
+            AIService()
 
         mock_chat_openai.assert_not_called()
 
-    # ------------------------------------------------------------------
-    # API TESTS
-    # ------------------------------------------------------------------
+   #API
 
     @patch("interviews.views.AIService")
     def test_ai_service_generates_structured_questions(
@@ -1168,4 +1161,274 @@ class InterviewAPITestCase(TestCase):
         self.assertEqual(
             response.data["error"],
             "Interview link has expired",
+        )
+
+    #API RECRUITER
+
+    def create_recruiter_test_interview(self):
+        interview = Interview.objects.create(
+            job=self.job,
+            expires_at=timezone.now() + timedelta(hours=24),
+        )
+
+        questions = [
+            (self.python, "Explain Python decorators."),
+            (self.python, "How does Python garbage collection work?"),
+            (self.postgres, "Explain PostgreSQL indexes."),
+            (self.postgres, "How do you optimize a slow query?"),
+            (
+                self.api_design,
+                "How would you design a paginated REST API?",
+            ),
+        ]
+
+        for order, (skill, question_text) in enumerate(
+            questions,
+            start=1,
+        ):
+            InterviewQuestion.objects.create(
+                interview=interview,
+                skill=skill,
+                question=question_text,
+                order=order,
+            )
+
+        return interview
+
+    def test_recruiter_can_list_interviews_for_job(self):
+        first_interview = self.create_recruiter_test_interview()
+
+        second_interview = self.create_recruiter_test_interview()
+        second_interview.status = "in_progress"
+        second_interview.save(update_fields=["status"])
+
+        response = self.client.get(
+            f"/api/jobs/{self.job.id}/interviews/"
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        self.assertEqual(
+            len(response.data),
+            2,
+        )
+
+        returned_ids = {
+            item["interview_id"]
+            for item in response.data
+        }
+
+        self.assertIn(
+            str(first_interview.id),
+            returned_ids,
+        )
+
+        self.assertIn(
+            str(second_interview.id),
+            returned_ids,
+        )
+
+        returned_statuses = {
+            item["interview_id"]: item["status"]
+            for item in response.data
+        }
+
+        self.assertEqual(
+            returned_statuses[str(first_interview.id)],
+            "not_started",
+        )
+
+        self.assertEqual(
+            returned_statuses[str(second_interview.id)],
+            "in_progress",
+        )
+
+        self.assertEqual(
+            response.data[0]["job_title"],
+            self.job.title,
+        )
+
+    def test_recruiter_can_view_unanswered_interview_detail(self):
+        interview = self.create_recruiter_test_interview()
+
+        response = self.client.get(
+            f"/api/interviews/{interview.id}/"
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        self.assertEqual(
+            response.data["interview_id"],
+            str(interview.id),
+        )
+
+        self.assertEqual(
+            response.data["job"]["title"],
+            self.job.title,
+        )
+
+        self.assertEqual(
+            response.data["status"],
+            "not_started",
+        )
+
+        self.assertEqual(
+            len(response.data["questions"]),
+            5,
+        )
+
+        for question in response.data["questions"]:
+            self.assertIsNone(
+                question["answer"]
+            )
+
+        self.assertEqual(
+            response.data["skill_scores"],
+            [],
+        )
+
+        self.assertIsNone(
+            response.data["result"]
+        )
+
+    def test_recruiter_can_view_transcripts_audio_and_result(self):
+        interview = self.create_recruiter_test_interview()
+
+        questions = list(
+            interview.questions.order_by("order")
+        )
+
+        audio = SimpleUploadedFile(
+            "candidate-answer.webm",
+            b"fake recruiter test audio",
+            content_type="audio/webm",
+        )
+
+        Answer.objects.create(
+            question=questions[0],
+            transcript=(
+                "I use Python decorators to wrap reusable "
+                "behavior around functions."
+            ),
+            audio=audio,
+        )
+
+        Answer.objects.create(
+            question=questions[1],
+            transcript=(
+                "Python uses reference counting together "
+                "with cyclic garbage collection."
+            ),
+        )
+
+        SkillScore.objects.create(
+            interview=interview,
+            skill=self.python,
+            rating=4,
+        )
+
+        SkillScore.objects.create(
+            interview=interview,
+            skill=self.postgres,
+            rating=3,
+        )
+
+        SkillScore.objects.create(
+            interview=interview,
+            skill=self.api_design,
+            rating=5,
+        )
+
+        InterviewResult.objects.create(
+            interview=interview,
+            fit_score="High",
+            summary=(
+                "The candidate demonstrated strong "
+                "technical knowledge."
+            ),
+        )
+
+        response = self.client.get(
+            f"/api/interviews/{interview.id}/"
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        self.assertEqual(
+            len(response.data["questions"]),
+            5,
+        )
+
+        first_question = response.data["questions"][0]
+
+        self.assertIsNotNone(
+            first_question["answer"]
+        )
+
+        self.assertIn(
+            "I use Python decorators",
+            first_question["answer"]["transcript"],
+        )
+
+        self.assertTrue(
+            first_question["answer"]["audio_url"]
+        )
+
+        second_question = response.data["questions"][1]
+
+        self.assertEqual(
+            second_question["answer"]["transcript"],
+            (
+                "Python uses reference counting together "
+                "with cyclic garbage collection."
+            ),
+        )
+
+        self.assertIsNone(
+            response.data["questions"][2]["answer"]
+        )
+
+        self.assertEqual(
+            len(response.data["skill_scores"]),
+            3,
+        )
+
+        self.assertEqual(
+            response.data["result"]["fit_score"],
+            "High",
+        )
+
+        self.assertEqual(
+            response.data["result"]["summary"],
+            "The candidate demonstrated strong "
+            "technical knowledge.",
+        )
+
+    def test_recruiter_endpoints_return_not_found_for_unknown_objects(self):
+        response = self.client.get(
+            "/api/jobs/999999/interviews/"
+        )
+
+        self.assertEqual(
+            response.status_code,
+            404,
+        )
+
+        response = self.client.get(
+            "/api/interviews/"
+            "00000000-0000-0000-0000-000000000000/"
+        )
+
+        self.assertEqual(
+            response.status_code,
+            404,
         )

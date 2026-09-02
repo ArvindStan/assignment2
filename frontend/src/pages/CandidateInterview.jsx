@@ -1,22 +1,39 @@
-import { useEffect, useState } from "react";
+import {
+    useEffect,
+    useRef,
+    useState,
+} from "react";
+
 import {
     getInterview,
     submitAnswer,
     submitAudioAnswer,
 } from "../api/client";
 
+
 function CandidateInterview({ token }) {
     const [interview, setInterview] = useState(null);
     const [answers, setAnswers] = useState({});
     const [audioFiles, setAudioFiles] = useState({});
-    const [submittedQuestions, setSubmittedQuestions] = useState(
-        new Set()
-    );
+    const [audioPreviews, setAudioPreviews] = useState({});
+    const [submittedQuestions, setSubmittedQuestions] =
+        useState(new Set());
 
     const [loading, setLoading] = useState(true);
-    const [submittingQuestion, setSubmittingQuestion] = useState(null);
+    const [submittingQuestion, setSubmittingQuestion] =
+        useState(null);
+    const [recordingQuestionId, setRecordingQuestionId] =
+        useState(null);
+    const [recordingTime, setRecordingTime] =
+        useState(0);
     const [error, setError] = useState("");
     const [success, setSuccess] = useState("");
+
+    const mediaRecorderRef = useRef(null);
+    const mediaStreamRef = useRef(null);
+    const audioChunksRef = useRef([]);
+    const recordingTimerRef = useRef(null);
+
 
     useEffect(() => {
         async function loadInterview() {
@@ -24,7 +41,8 @@ function CandidateInterview({ token }) {
                 setLoading(true);
                 setError("");
 
-                const data = await getInterview(token);
+                const data =
+                    await getInterview(token);
 
                 setInterview(data);
             } catch (err) {
@@ -45,7 +63,18 @@ function CandidateInterview({ token }) {
         }
     }, [token]);
 
-    const handleTextChange = (questionId, value) => {
+
+    useEffect(() => {
+        return () => {
+            stopRecordingCleanup();
+        };
+    }, []);
+
+
+    const handleTextChange = (
+        questionId,
+        value
+    ) => {
         setAnswers((previous) => ({
             ...previous,
             [questionId]: value,
@@ -55,22 +84,325 @@ function CandidateInterview({ token }) {
         setError("");
     };
 
-    const handleAudioChange = (questionId, file) => {
+
+    const handleAudioChange = (
+        questionId,
+        file
+    ) => {
         if (!file) {
             return;
         }
+
+        if (
+            audioPreviews[questionId]
+        ) {
+            URL.revokeObjectURL(
+                audioPreviews[questionId]
+            );
+        }
+
+        const previewUrl =
+            URL.createObjectURL(file);
 
         setAudioFiles((previous) => ({
             ...previous,
             [questionId]: file,
         }));
 
+        setAudioPreviews((previous) => ({
+            ...previous,
+            [questionId]: previewUrl,
+        }));
+
         setSuccess("");
         setError("");
     };
 
-    const handleSubmit = async (question) => {
-        const questionId = question.id;
+
+    function stopRecordingCleanup() {
+        if (
+            recordingTimerRef.current
+        ) {
+            clearInterval(
+                recordingTimerRef.current
+            );
+
+            recordingTimerRef.current = null;
+        }
+
+        if (
+            mediaRecorderRef.current &&
+            mediaRecorderRef.current.state !==
+                "inactive"
+        ) {
+            mediaRecorderRef.current.stop();
+        }
+
+        if (mediaStreamRef.current) {
+            mediaStreamRef.current
+                .getTracks()
+                .forEach((track) => {
+                    track.stop();
+                });
+
+            mediaStreamRef.current = null;
+        }
+
+        mediaRecorderRef.current = null;
+    }
+
+
+    async function startRecording(
+        questionId
+    ) {
+        if (
+            !navigator.mediaDevices ||
+            !navigator.mediaDevices.getUserMedia
+        ) {
+            setError(
+                "Your browser does not support microphone recording."
+            );
+            return;
+        }
+
+        if (
+            !window.MediaRecorder
+        ) {
+            setError(
+                "Your browser does not support audio recording."
+            );
+            return;
+        }
+
+        if (
+            recordingQuestionId !== null
+        ) {
+            return;
+        }
+
+        try {
+            setError("");
+            setSuccess("");
+
+            const stream =
+                await navigator.mediaDevices.getUserMedia(
+                    {
+                        audio: true,
+                    }
+                );
+
+            mediaStreamRef.current =
+                stream;
+
+            audioChunksRef.current = [];
+
+            const recorder =
+                new MediaRecorder(stream);
+
+            mediaRecorderRef.current =
+                recorder;
+
+            recorder.ondataavailable = (
+                event
+            ) => {
+                if (
+                    event.data &&
+                    event.data.size > 0
+                ) {
+                    audioChunksRef.current.push(
+                        event.data
+                    );
+                }
+            };
+
+            recorder.onstop = () => {
+                const audioBlob =
+                    new Blob(
+                        audioChunksRef.current,
+                        {
+                            type:
+                                recorder.mimeType ||
+                                "audio/webm",
+                        }
+                    );
+
+                const audioFile =
+                    new File(
+                        [
+                            audioBlob,
+                        ],
+                        `recording-question-${questionId}.webm`,
+                        {
+                            type:
+                                audioBlob.type ||
+                                "audio/webm",
+                        }
+                    );
+
+                if (
+                    audioPreviews[
+                        questionId
+                    ]
+                ) {
+                    URL.revokeObjectURL(
+                        audioPreviews[
+                            questionId
+                        ]
+                    );
+                }
+
+                const previewUrl =
+                    URL.createObjectURL(
+                        audioBlob
+                    );
+
+                setAudioFiles(
+                    (previous) => ({
+                        ...previous,
+                        [questionId]:
+                            audioFile,
+                    })
+                );
+
+                setAudioPreviews(
+                    (previous) => ({
+                        ...previous,
+                        [questionId]:
+                            previewUrl,
+                    })
+                );
+
+                setRecordingQuestionId(
+                    null
+                );
+
+                setRecordingTime(0);
+
+                if (
+                    mediaStreamRef.current
+                ) {
+                    mediaStreamRef.current
+                        .getTracks()
+                        .forEach(
+                            (track) =>
+                                track.stop()
+                        );
+
+                    mediaStreamRef.current =
+                        null;
+                }
+
+                mediaRecorderRef.current =
+                    null;
+
+                audioChunksRef.current = [];
+            };
+
+            recorder.onerror = () => {
+                setError(
+                    "An error occurred while recording audio."
+                );
+
+                stopRecordingCleanup();
+                setRecordingQuestionId(
+                    null
+                );
+                setRecordingTime(0);
+            };
+
+            recorder.start();
+
+            setRecordingQuestionId(
+                questionId
+            );
+
+            setRecordingTime(0);
+
+            recordingTimerRef.current =
+                setInterval(() => {
+                    setRecordingTime(
+                        (previous) =>
+                            previous + 1
+                    );
+                }, 1000);
+        } catch (err) {
+            if (
+                err.name ===
+                "NotAllowedError"
+            ) {
+                setError(
+                    "Microphone permission was denied. Please allow microphone access and try again."
+                );
+            } else if (
+                err.name ===
+                "NotFoundError"
+            ) {
+                setError(
+                    "No microphone was found. Please connect a microphone and try again."
+                );
+            } else {
+                setError(
+                    err.message ||
+                        "Unable to start audio recording."
+                );
+            }
+
+            stopRecordingCleanup();
+            setRecordingQuestionId(
+                null
+            );
+            setRecordingTime(0);
+        }
+    }
+
+
+    function stopRecording() {
+        const recorder =
+            mediaRecorderRef.current;
+
+        if (
+            recorder &&
+            recorder.state !==
+                "inactive"
+        ) {
+            recorder.stop();
+        }
+
+        if (
+            recordingTimerRef.current
+        ) {
+            clearInterval(
+                recordingTimerRef.current
+            );
+
+            recordingTimerRef.current =
+                null;
+        }
+    }
+
+
+    function formatRecordingTime(
+        seconds
+    ) {
+        const minutes =
+            Math.floor(seconds / 60);
+
+        const remainingSeconds =
+            seconds % 60;
+
+        return `${String(
+            minutes
+        ).padStart(2, "0")}:${String(
+            remainingSeconds
+        ).padStart(2, "0")}`;
+    }
+
+
+    const handleSubmit = async (
+        question
+    ) => {
+        const questionId =
+            question.id;
 
         const transcript =
             answers[questionId]?.trim();
@@ -78,7 +410,10 @@ function CandidateInterview({ token }) {
         const audioFile =
             audioFiles[questionId];
 
-        if (!transcript && !audioFile) {
+        if (
+            !transcript &&
+            !audioFile
+        ) {
             setError(
                 `Please provide a text or audio answer for Question ${question.order}.`
             );
@@ -86,45 +421,66 @@ function CandidateInterview({ token }) {
         }
 
         try {
-            setSubmittingQuestion(questionId);
+            setSubmittingQuestion(
+                questionId
+            );
+
             setError("");
             setSuccess("");
 
             let result;
 
-            if (audioFile && !transcript) {
-                result = await submitAudioAnswer(
-                    token,
-                    questionId,
-                    audioFile
-                );
+            if (
+                audioFile &&
+                !transcript
+            ) {
+                result =
+                    await submitAudioAnswer(
+                        token,
+                        questionId,
+                        audioFile
+                    );
             } else {
-                result = await submitAnswer(
-                    token,
-                    questionId,
-                    transcript
-                );
+                result =
+                    await submitAnswer(
+                        token,
+                        questionId,
+                        transcript
+                    );
             }
 
             setSubmittedQuestions(
                 (previous) => {
-                    const next = new Set(previous);
-                    next.add(questionId);
+                    const next =
+                        new Set(
+                            previous
+                        );
+
+                    next.add(
+                        questionId
+                    );
+
                     return next;
                 }
             );
 
-            if (result.status === "completed") {
+            if (
+                result.status ===
+                "completed"
+            ) {
                 window.location.href =
                     `/interview/${token}/result`;
 
                 return;
             }
 
-            setInterview((previous) => ({
-                ...previous,
-                status: result.status,
-            }));
+            setInterview(
+                (previous) => ({
+                    ...previous,
+                    status:
+                        result.status,
+                })
+            );
 
             setSuccess(
                 `Question ${question.order} submitted successfully.`
@@ -135,9 +491,12 @@ function CandidateInterview({ token }) {
                     "Unable to submit your answer."
             );
         } finally {
-            setSubmittingQuestion(null);
+            setSubmittingQuestion(
+                null
+            );
         }
     };
+
 
     if (loading) {
         return (
@@ -162,6 +521,7 @@ function CandidateInterview({ token }) {
         );
     }
 
+
     if (error && !interview) {
         return (
             <div className="candidate-page">
@@ -177,12 +537,15 @@ function CandidateInterview({ token }) {
                             Unable to load interview
                         </h2>
 
-                        <p>{error}</p>
+                        <p>
+                            {error}
+                        </p>
                     </div>
                 </main>
             </div>
         );
     }
+
 
     if (!interview) {
         return (
@@ -209,8 +572,10 @@ function CandidateInterview({ token }) {
         );
     }
 
+
     const totalQuestions =
-        interview.questions?.length || 0;
+        interview.questions?.length ||
+        0;
 
     const answeredCount =
         submittedQuestions.size;
@@ -223,6 +588,7 @@ function CandidateInterview({ token }) {
                       100
               )
             : 0;
+
 
     return (
         <div className="candidate-page">
@@ -237,7 +603,9 @@ function CandidateInterview({ token }) {
 
                         <h1>
                             Show us what{" "}
-                            <span>you know.</span>
+                            <span>
+                                you know.
+                            </span>
                         </h1>
 
                         <p>
@@ -289,7 +657,9 @@ function CandidateInterview({ token }) {
                         </div>
 
                         <div className="detail-item">
-                            <span>STATUS</span>
+                            <span>
+                                STATUS
+                            </span>
 
                             <strong className="candidate-status-value">
                                 {interview.status}
@@ -297,6 +667,7 @@ function CandidateInterview({ token }) {
                         </div>
                     </div>
                 </section>
+
 
                 <section className="candidate-progress-card">
                     <div className="progress-heading">
@@ -331,6 +702,7 @@ function CandidateInterview({ token }) {
                     </p>
                 </section>
 
+
                 {error && (
                     <div className="candidate-alert candidate-alert-error">
                         <div className="alert-symbol">
@@ -342,10 +714,13 @@ function CandidateInterview({ token }) {
                                 Something went wrong
                             </strong>
 
-                            <span>{error}</span>
+                            <span>
+                                {error}
+                            </span>
                         </div>
                     </div>
                 )}
+
 
                 {success && (
                     <div className="candidate-alert candidate-alert-success">
@@ -358,10 +733,13 @@ function CandidateInterview({ token }) {
                                 Answer submitted
                             </strong>
 
-                            <span>{success}</span>
+                            <span>
+                                {success}
+                            </span>
                         </div>
                     </div>
                 )}
+
 
                 <section className="candidate-questions-section">
                     <div className="candidate-section-heading">
@@ -380,9 +758,13 @@ function CandidateInterview({ token }) {
                         </strong>
                     </div>
 
+
                     <div className="candidate-question-list">
                         {interview.questions.map(
-                            (question, index) => {
+                            (
+                                question,
+                                index
+                            ) => {
                                 const questionId =
                                     question.id;
 
@@ -394,6 +776,10 @@ function CandidateInterview({ token }) {
                                     submittedQuestions.has(
                                         questionId
                                     );
+
+                                const isRecording =
+                                    recordingQuestionId ===
+                                    questionId;
 
                                 const hasText =
                                     !!answers[
@@ -412,8 +798,11 @@ function CandidateInterview({ token }) {
                                                 ? "submitted"
                                                 : ""
                                         }`}
-                                        key={questionId}
+                                        key={
+                                            questionId
+                                        }
                                     >
+
                                         <div className="candidate-question-header">
                                             <div className="candidate-question-index">
                                                 {String(
@@ -441,6 +830,7 @@ function CandidateInterview({ token }) {
                                             </div>
                                         </div>
 
+
                                         <div className="candidate-question-body">
                                             <h3>
                                                 {
@@ -461,9 +851,12 @@ function CandidateInterview({ token }) {
                                             )}
                                         </div>
 
+
                                         <div className="candidate-answer-divider"></div>
 
+
                                         <div className="candidate-answer-grid">
+
                                             <div className="candidate-text-answer">
                                                 <div className="answer-heading">
                                                     <div>
@@ -478,15 +871,18 @@ function CandidateInterview({ token }) {
                                                     </div>
 
                                                     <span>
-                                                        {(
-                                                            answers[
-                                                                questionId
-                                                            ] ||
-                                                            ""
-                                                        ).length}{" "}
+                                                        {
+                                                            (
+                                                                answers[
+                                                                    questionId
+                                                                ] ||
+                                                                ""
+                                                            ).length
+                                                        }{" "}
                                                         characters
                                                     </span>
                                                 </div>
+
 
                                                 <textarea
                                                     value={
@@ -508,9 +904,11 @@ function CandidateInterview({ token }) {
                                                     placeholder="Write your answer here. Explain your reasoning clearly and include relevant examples where possible."
                                                     disabled={
                                                         isSubmitting ||
-                                                        isSubmitted
+                                                        isSubmitted ||
+                                                        isRecording
                                                     }
                                                 />
+
 
                                                 <div className="answer-tip">
                                                     <span>
@@ -523,78 +921,157 @@ function CandidateInterview({ token }) {
                                                 </div>
                                             </div>
 
+
                                             <div className="answer-or">
-                                                <span>OR</span>
+                                                <span>
+                                                    OR
+                                                </span>
                                             </div>
 
+
                                             <div className="candidate-audio-answer">
+
                                                 <div className="audio-upload-icon">
                                                     🎙
                                                 </div>
 
+
                                                 <div className="audio-upload-content">
                                                     <strong>
-                                                        Upload an
-                                                        audio
-                                                        response
+                                                        Audio response
                                                     </strong>
 
                                                     <p>
-                                                        MP3, WAV,
-                                                        WebM and
-                                                        other
-                                                        supported
-                                                        audio
-                                                        formats
+                                                        Record your
+                                                        answer directly
+                                                        from your
+                                                        browser or
+                                                        upload an
+                                                        existing audio
+                                                        file.
                                                     </p>
 
-                                                    {hasAudio && (
-                                                        <div className="selected-audio">
-                                                            <span>
-                                                                ✓
-                                                            </span>
 
+                                                    {isRecording && (
+                                                        <div className="recording-status">
+                                                            <span className="recording-dot"></span>
+
+                                                            Recording{" "}
                                                             {
-                                                                audioFiles[
-                                                                    questionId
-                                                                ].name
+                                                                formatRecordingTime(
+                                                                    recordingTime
+                                                                )
                                                             }
                                                         </div>
                                                     )}
+
+
+                                                    {hasAudio &&
+                                                        !isRecording && (
+                                                            <div className="selected-audio">
+                                                                <span>
+                                                                    ✓
+                                                                </span>
+
+                                                                {
+                                                                    audioFiles[
+                                                                        questionId
+                                                                    ].name
+                                                                }
+                                                            </div>
+                                                        )}
+
+
+                                                    {audioPreviews[
+                                                        questionId
+                                                    ] && (
+                                                        <audio
+                                                            controls
+                                                            preload="metadata"
+                                                            src={
+                                                                audioPreviews[
+                                                                    questionId
+                                                                ]
+                                                            }
+                                                        />
+                                                    )}
                                                 </div>
 
-                                                <label
-                                                    className={`audio-upload-button ${
-                                                        isSubmitted
-                                                            ? "disabled"
-                                                            : ""
-                                                    }`}
-                                                >
-                                                    <input
-                                                        type="file"
-                                                        accept="audio/*"
-                                                        disabled={
-                                                            isSubmitting ||
-                                                            isSubmitted
-                                                        }
-                                                        onChange={(
-                                                            event
-                                                        ) =>
-                                                            handleAudioChange(
-                                                                questionId,
-                                                                event
-                                                                    .target
-                                                                    .files?.[0]
-                                                            )
-                                                        }
-                                                    />
 
-                                                    {hasAudio
-                                                        ? "Change audio"
-                                                        : "Choose audio"}
-                                                </label>
+                                                <div className="audio-actions">
+
+                                                    {!isSubmitted &&
+                                                        !isRecording && (
+                                                            <button
+                                                                type="button"
+                                                                className="audio-record-button"
+                                                                disabled={
+                                                                    isSubmitting ||
+                                                                    recordingQuestionId !==
+                                                                        null
+                                                                }
+                                                                onClick={() =>
+                                                                    startRecording(
+                                                                        questionId
+                                                                    )
+                                                                }
+                                                            >
+                                                                ● Start Recording
+                                                            </button>
+                                                        )}
+
+
+                                                    {isRecording && (
+                                                        <button
+                                                            type="button"
+                                                            className="audio-stop-button"
+                                                            onClick={
+                                                                stopRecording
+                                                            }
+                                                        >
+                                                            ■ Stop Recording
+                                                        </button>
+                                                    )}
+
+
+                                                    {!isSubmitted &&
+                                                        !isRecording && (
+                                                            <label
+                                                                className={`audio-upload-button ${
+                                                                    isSubmitting
+                                                                        ? "disabled"
+                                                                        : ""
+                                                                }`}
+                                                            >
+                                                                <input
+                                                                    type="file"
+                                                                    accept="audio/*"
+                                                                    disabled={
+                                                                        isSubmitting ||
+                                                                        isRecording
+                                                                    }
+                                                                    onChange={(
+                                                                        event
+                                                                    ) =>
+                                                                        handleAudioChange(
+                                                                            questionId,
+                                                                            event
+                                                                                .target
+                                                                                .files?.[0]
+                                                                        )
+                                                                    }
+                                                                />
+
+                                                                {hasAudio
+                                                                    ? "Change audio"
+                                                                    : "Choose audio"}
+                                                            </label>
+                                                        )}
+
+                                                </div>
                                             </div>
                                         </div>
+
 
                                         <button
                                             className={`candidate-submit-button ${
@@ -605,7 +1082,8 @@ function CandidateInterview({ token }) {
                                             type="button"
                                             disabled={
                                                 isSubmitting ||
-                                                isSubmitted
+                                                isSubmitted ||
+                                                isRecording
                                             }
                                             onClick={() =>
                                                 handleSubmit(
@@ -619,12 +1097,14 @@ function CandidateInterview({ token }) {
                                                 ? "Submitting..."
                                                 : `Submit Question ${question.order} →`}
                                         </button>
+
                                     </article>
                                 );
                             }
                         )}
                     </div>
                 </section>
+
 
                 <footer className="candidate-footer">
                     <span>
@@ -643,6 +1123,7 @@ function CandidateInterview({ token }) {
         </div>
     );
 }
+
 
 function CandidateTopbar() {
     return (
@@ -670,5 +1151,6 @@ function CandidateTopbar() {
         </header>
     );
 }
+
 
 export default CandidateInterview;

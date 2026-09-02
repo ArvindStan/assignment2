@@ -12,15 +12,11 @@ from dotenv import load_dotenv
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
-# Load environment variables from .env when running locally.
-# Environment variables already provided by the deployment/runtime
-# will continue to work normally.
+
 load_dotenv(BASE_DIR / ".env")
 
 
-# -------------------------------------------------------------------
-# Core Django settings
-# -------------------------------------------------------------------
+
 
 SECRET_KEY = os.getenv(
     "DJANGO_SECRET_KEY",
@@ -37,11 +33,18 @@ ALLOWED_HOSTS = os.getenv(
 ALLOWED_HOSTS = [host.strip() for host in ALLOWED_HOSTS if host.strip()]
 
 
-# -------------------------------------------------------------------
-# AI / LLM configuration
-# -------------------------------------------------------------------
 
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+
+AI_PROVIDER = os.getenv(
+    "AI_PROVIDER",
+    "ollama",
+).lower()
+
+
+OPENAI_API_KEY = os.getenv(
+    "OPENAI_API_KEY",
+    "",
+)
 
 OPENAI_MODEL = os.getenv(
     "OPENAI_MODEL",
@@ -49,9 +52,18 @@ OPENAI_MODEL = os.getenv(
 )
 
 
-# -------------------------------------------------------------------
-# Application definition
-# -------------------------------------------------------------------
+OLLAMA_BASE_URL = os.getenv(
+    "OLLAMA_BASE_URL",
+    "http://localhost:11434",
+)
+
+OLLAMA_MODEL = os.getenv(
+    "OLLAMA_MODEL",
+    "llama3.2:3b",
+)
+
+
+
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -96,9 +108,7 @@ TEMPLATES = [
 WSGI_APPLICATION = "hiring.wsgi.application"
 
 
-# -------------------------------------------------------------------
-# Database
-# -------------------------------------------------------------------
+
 
 DATABASES = {
     "default": {
@@ -108,9 +118,6 @@ DATABASES = {
 }
 
 
-# -------------------------------------------------------------------
-# Password validation
-# -------------------------------------------------------------------
 
 AUTH_PASSWORD_VALIDATORS = [
     {
@@ -140,9 +147,6 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 
-# -------------------------------------------------------------------
-# Internationalization
-# -------------------------------------------------------------------
 
 LANGUAGE_CODE = "en-us"
 
@@ -153,9 +157,7 @@ USE_I18N = True
 USE_TZ = True
 
 
-# -------------------------------------------------------------------
-# Static and media files
-# -------------------------------------------------------------------
+
 
 STATIC_URL = "static/"
 
@@ -163,15 +165,10 @@ MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
 
 
-# -------------------------------------------------------------------
-# CORS
-# -------------------------------------------------------------------
 
 CORS_ALLOW_ALL_ORIGINS = True
 
 
-# -------------------------------------------------------------------
-# Default primary key
-# -------------------------------------------------------------------
+
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"

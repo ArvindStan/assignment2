@@ -2,6 +2,7 @@ from typing import TypedDict
 
 from django.conf import settings
 from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_ollama import ChatOllama
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, Field
@@ -73,8 +74,16 @@ class InterviewScoringState(TypedDict, total=False):
 
 class AIService:
     """
-    Real AI service using OpenAI, LangChain, LangGraph,
-    and Pydantic structured output.
+    Real AI service using LangChain, LangGraph, and Pydantic
+    structured output.
+
+    Supported LLM providers:
+
+    - OpenAI
+    - Ollama
+
+    The provider is selected through the AI_PROVIDER environment
+    variable.
 
     Question generation graph:
         START
@@ -92,17 +101,7 @@ class AIService:
     """
 
     def __init__(self):
-        if not settings.OPENAI_API_KEY:
-            raise ValueError(
-                "OPENAI_API_KEY is not configured. "
-                "Add it to your .env file."
-            )
-
-        self.llm = ChatOpenAI(
-            model=settings.OPENAI_MODEL,
-            api_key=settings.OPENAI_API_KEY,
-            temperature=0.3,
-        )
+        self.llm = self._build_llm()
 
         self.question_graph = (
             self._build_question_generation_graph()
@@ -110,6 +109,47 @@ class AIService:
 
         self.scoring_graph = (
             self._build_interview_scoring_graph()
+        )
+
+    # ------------------------------------------------------------------
+    # LLM configuration
+    # ------------------------------------------------------------------
+
+    def _build_llm(self):
+        """
+        Build the configured LangChain chat model.
+
+        OpenAI requires an API key.
+
+        Ollama runs locally and does not require an API key.
+        """
+
+        provider = settings.AI_PROVIDER
+
+        if provider == "openai":
+            if not settings.OPENAI_API_KEY:
+                raise ValueError(
+                    "OPENAI_API_KEY is not configured. "
+                    "Add it to your .env file when using "
+                    "AI_PROVIDER=openai."
+                )
+
+            return ChatOpenAI(
+                model=settings.OPENAI_MODEL,
+                api_key=settings.OPENAI_API_KEY,
+                temperature=0.3,
+            )
+
+        if provider == "ollama":
+            return ChatOllama(
+                model=settings.OLLAMA_MODEL,
+                base_url=settings.OLLAMA_BASE_URL,
+                temperature=0.3,
+            )
+
+        raise ValueError(
+            f"Unsupported AI_PROVIDER '{provider}'. "
+            "Use 'openai' or 'ollama'."
         )
 
     # ------------------------------------------------------------------

@@ -25,7 +25,6 @@ async function request(endpoint, options = {}) {
         headers: requestHeaders,
     };
 
-    // JSON body
     if (
         body !== undefined &&
         body !== null &&
@@ -35,7 +34,6 @@ async function request(endpoint, options = {}) {
         config.body = JSON.stringify(body);
     }
 
-    // FormData body
     if (body instanceof FormData) {
         config.body = body;
     }
@@ -71,27 +69,16 @@ async function request(endpoint, options = {}) {
 }
 
 
-// ============================================================
-// SKILLS
-// ============================================================
-
-// GET /api/skills/
 export function getSkills() {
     return request("/skills/");
 }
 
 
-// ============================================================
-// JOBS
-// ============================================================
-
-// GET /api/jobs/
 export function getJobs() {
     return request("/jobs/");
 }
 
 
-// POST /api/jobs/
 export function createJob(title, skills) {
     return request("/jobs/", {
         method: "POST",
@@ -103,11 +90,6 @@ export function createJob(title, skills) {
 }
 
 
-// ============================================================
-// INTERVIEW GENERATION
-// ============================================================
-
-// POST /api/jobs/:jobId/interview/
 export function generateInterview(jobId) {
     return request(`/jobs/${jobId}/interview/`, {
         method: "POST",
@@ -115,21 +97,34 @@ export function generateInterview(jobId) {
 }
 
 
-// ============================================================
-// CANDIDATE INTERVIEW
-// ============================================================
+/*
+ * Recruiter API
+ *
+ * Get all interviews belonging to a job.
+ */
+export function getJobInterviews(jobId) {
+    return request(`/jobs/${jobId}/interviews/`);
+}
 
-// GET /api/interview/:token/
+
+/*
+ * Recruiter API
+ *
+ * Get complete details for one interview.
+ *
+ * interviewId is the Interview UUID,
+ * not the candidate token.
+ */
+export function getInterviewDetail(interviewId) {
+    return request(`/interviews/${interviewId}/`);
+}
+
+
 export function getInterview(token) {
     return request(`/interview/${token}/`);
 }
 
 
-// ============================================================
-// TEXT ANSWER
-// ============================================================
-
-// POST /api/interview/:token/answer/
 export function submitAnswer(
     token,
     questionId,
@@ -145,11 +140,6 @@ export function submitAnswer(
 }
 
 
-// ============================================================
-// AUDIO ANSWER
-// ============================================================
-
-// POST /api/interview/:token/answer/
 export function submitAudioAnswer(
     token,
     questionId,
@@ -177,14 +167,8 @@ export function submitAudioAnswer(
 }
 
 
-// ============================================================
-// RESULTS
-// ============================================================
-
-// GET /api/interview/:token/result/
 export function getInterviewResult(token) {
     return request(
         `/interview/${token}/result/`
     );
 }
-

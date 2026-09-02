@@ -118,6 +118,132 @@ class JobListCreateView(APIView):
         )
 
 
+class JobInterviewListView(APIView):
+    """
+    Recruiter endpoint showing all interviews created for a job.
+    """
+
+    def get(self, request, job_id):
+        job = get_object_or_404(Job, id=job_id)
+
+        interviews = (
+            Interview.objects
+            .filter(job=job)
+            .order_by("-created_at")
+        )
+
+        return Response([
+            {
+                "interview_id": str(interview.id),
+                "token": str(interview.token),
+                "job_id": job.id,
+                "job_title": job.title,
+                "status": interview.status,
+                "created_at": interview.created_at,
+                "expires_at": interview.expires_at,
+                "used_at": interview.used_at,
+                "candidate_url": (
+                    f"http://localhost:3000/interview/"
+                    f"{interview.token}"
+                ),
+            }
+            for interview in interviews
+        ])
+
+
+class InterviewDetailView(APIView):
+    """
+    Recruiter endpoint showing the complete interview record,
+    including questions, transcripts, audio, scores and result.
+    """
+
+    def get(self, request, interview_id):
+        interview = get_object_or_404(
+            Interview.objects.select_related("job"),
+            id=interview_id,
+        )
+
+        questions = (
+            InterviewQuestion.objects
+            .filter(interview=interview)
+            .select_related("skill")
+            .prefetch_related("answer")
+            .order_by("order")
+        )
+
+        skill_scores = (
+            SkillScore.objects
+            .filter(interview=interview)
+            .select_related("skill")
+        )
+
+        result = InterviewResult.objects.filter(
+            interview=interview
+        ).first()
+
+        return Response(
+            {
+                "interview_id": str(interview.id),
+                "token": str(interview.token),
+                "job": {
+                    "id": interview.job.id,
+                    "title": interview.job.title,
+                },
+                "status": interview.status,
+                "created_at": interview.created_at,
+                "expires_at": interview.expires_at,
+                "used_at": interview.used_at,
+                "candidate_url": (
+                    f"http://localhost:3000/interview/"
+                    f"{interview.token}"
+                ),
+                "questions": [
+                    {
+                        "id": question.id,
+                        "order": question.order,
+                        "question": question.question,
+                        "skill": {
+                            "skill_id": question.skill.skill_id,
+                            "name": question.skill.name,
+                            "dimension": question.skill.dimension,
+                        },
+                        "answer": (
+                            {
+                                "transcript": question.answer.transcript,
+                                "audio_url": (
+                                    request.build_absolute_uri(
+                                        question.answer.audio.url
+                                    )
+                                    if question.answer.audio
+                                    else None
+                                ),
+                            }
+                            if hasattr(question, "answer")
+                            else None
+                        ),
+                    }
+                    for question in questions
+                ],
+                "skill_scores": [
+                    {
+                        "skill_id": skill_score.skill.skill_id,
+                        "skill": skill_score.skill.name,
+                        "rating": skill_score.rating,
+                    }
+                    for skill_score in skill_scores
+                ],
+                "result": (
+                    {
+                        "fit_score": result.fit_score,
+                        "summary": result.summary,
+                    }
+                    if result
+                    else None
+                ),
+            }
+        )
+
+
 class GenerateInterviewView(APIView):
     def post(self, request, job_id):
         job = get_object_or_404(Job, id=job_id)
@@ -449,4 +575,3 @@ class InterviewResultView(APIView):
                 for skill_score in skill_scores
             ],
         })
-
