@@ -1,132 +1,179 @@
-\# Technical Decisions
+# Technical Decisions
 
+## 1. Django REST Framework
 
+I used Django REST Framework to expose the application APIs for jobs, skills, interviews, answers, and results.
 
-\## 1. Django REST Framework
+The original assignment specified FastAPI. Django/DRF was chosen because it allowed the application to be implemented and tested efficiently while maintaining a clean REST API structure.
 
+## 2. Real AI Pipeline
 
+The interview question generation and scoring use a real LLM rather than deterministic or hardcoded scoring rules.
 
-I used Django REST Framework to expose the application APIs because the assignment requires HTTP endpoints for jobs, skills, interviews, answers, and results.
+LangChain handles the LLM integration, LangGraph provides the workflow orchestration, and Pydantic models provide structured outputs.
 
+### Question generation
 
+```text
+START
+  -> Prepare required skills
+  -> Generate questions with LLM
+  -> Validate structured response
+  -> END
+```
 
-\## 2. Tokenized Candidate Interview
+### Interview scoring
 
+```text
+START
+  -> Prepare skills and candidate transcripts
+  -> Evaluate transcript content with LLM
+  -> Validate structured response
+  -> END
+```
 
+The scoring evaluates what the candidate actually said, including technical correctness, depth, reasoning, practical experience, and relevance. Transcript length is not used as the scoring mechanism.
 
-Candidate interviews use a unique token in the URL instead of requiring authentication. This keeps the candidate experience simple and follows the assignment requirement for a tokenized interview link.
+Ollama with `llama3.2:3b` is the default local provider. OpenAI can also be configured through environment variables.
 
+## 3. Environment-Based AI Configuration
 
+AI provider and model configuration are loaded from environment variables rather than being hardcoded.
+
+For example:
+
+```env
+AI_PROVIDER=ollama
+OLLAMA_MODEL=llama3.2:3b
+OLLAMA_BASE_URL=http://localhost:11434
+```
+
+or:
+
+```env
+AI_PROVIDER=openai
+OPENAI_API_KEY=your-api-key
+OPENAI_MODEL=gpt-4o-mini
+```
+
+This allows another developer or reviewer to provide their own API key and model configuration without modifying application code.
+
+## 4. Tokenized Candidate Interview
+
+Candidate interviews use a unique token in the URL instead of requiring candidate authentication.
 
 Example:
 
+```text
+/interview/<token>/
+```
 
+The token is used to retrieve the interview, submit answers, and retrieve the final result.
 
-`/interview/<token>/`
+This keeps the candidate experience simple while providing a shareable interview link.
 
+## 5. Candidate Name
 
+The candidate enters their full name before starting the interview.
 
-The token is also used when retrieving the interview, submitting answers, and retrieving the final result.
+The name is stored with the interview and is available to recruiters on the dashboard and interview detail page.
 
+## 6. Speech-to-Text Abstraction
 
+Speech-to-text is isolated behind a `SpeechToTextService` so the API layer does not depend directly on a specific transcription implementation.
 
-\## 3. LangGraph and LangChain
+The current implementation performs local speech-to-text processing and stores the resulting transcript with the candidate's answer.
 
+This keeps the transcription component replaceable if a different provider or model is required later.
 
+## 7. Audio Storage
 
-LangGraph is used as the orchestration layer for question generation and interview scoring. LangChain `RunnableLambda` is used for the executable workflow nodes.
+Candidate audio is stored using Django's file storage mechanism through the `Answer.audio` field.
 
+The original audio is retained alongside the generated transcript, allowing recruiters to review both the transcript and the recording.
 
+## 8. Interview Expiration and Completion
 
-The current implementation uses deterministic local logic so the assignment can run without requiring an external LLM API key.
+Interview links expire after 24 hours.
 
+Completed interviews cannot accept additional answers.
 
+This prevents expired or completed candidate links from being reused.
 
-\## 4. Speech-to-Text Abstraction
+## 9. Exactly Five Questions
 
+Each generated interview contains exactly five questions.
 
+Questions are generated based on the job's required skills and validated through the structured AI output before being stored.
 
-Speech-to-text is isolated behind a `SpeechToTextService` class. This keeps the API layer independent from a specific transcription provider and allows Whisper or another provider to be introduced without changing the interview API.
+## 10. Semantic Interview Scoring
 
+Interview scoring is performed by the AI model using the candidate's transcript and the job's required skills.
 
+The scoring considers the substance of the candidate's response rather than relying on simple heuristics such as word count.
 
-For the current assignment implementation, the service uses a deterministic local stub rather than an external paid transcription API.
+The system stores skill-level ratings, an overall fit score, and an AI-generated summary.
 
+## 11. React + Vite Frontend
 
+The frontend uses React with Vite.
 
-\## 5. Audio Storage
+HTTP communication with the backend is centralized in `src/api/client.js`, keeping API calls separate from page components.
 
+The candidate workflow includes text answers, browser microphone recording, audio upload, speech-to-text processing, and interview results.
 
+## 12. Recruiter Workflow
 
-Uploaded candidate audio is stored through Django's file storage mechanism using the `Answer.audio` field. The original audio can therefore be retained alongside the generated transcript.
+The recruiter interface provides:
 
+* Job listing
+* Interviews associated with each job
+* Interview status
+* Candidate information
+* Interview detail
+* Candidate transcripts
+* Candidate audio
+* AI-generated evaluation results
 
+This was implemented to cover the recruiter review workflow required by the assignment.
 
-\## 6. Interview Expiration and Single Use
+## 13. Error Handling
 
+The frontend API client checks HTTP responses and converts API errors into JavaScript errors so individual pages can display useful error messages.
 
+The backend validates required fields and handles invalid requests, expired interviews, completed interviews, and other invalid states with appropriate HTTP responses.
 
-Interview links expire after 24 hours and cannot be reused after the interview is completed.
+## 14. Scope Trade-offs
 
+The main priority of the rework was the AI pipeline because it is the core requirement.
 
+The implemented workflow is:
 
-This prevents an old or completed candidate link from being used again.
-
-
-
-\## 7. Exactly Five Questions
-
-
-
-The interview-generation service always produces exactly five questions. Questions are generated from the job's required skills, with additional questions generated when fewer than five distinct skills are selected.
-
-
-
-\## 8. Deterministic Interview Scoring
-
-
-
-The assignment scoring implementation is deterministic and local. Ratings are calculated from the available transcript content and mapped to a 1–5 skill rating.
-
-
-
-This avoids requiring an external AI service or API key while keeping the scoring workflow replaceable.
-
-
-
-\## 9. React + Vite Frontend
-
-
-
-The frontend uses React with Vite. The frontend communicates with Django through a small API client layer in `src/api/client.js`, keeping HTTP communication separate from page components.
-
-
-
-\## 10. Error Handling
-
-
-
-The frontend API client checks HTTP responses and converts JSON API errors into JavaScript errors so individual pages can display useful error messages.
-
-
-
-The backend also validates required fields and returns appropriate HTTP status codes for invalid requests, expired interviews, and already-used interview links.
-
-
-
-\## 11. Scope Trade-offs
-
-
-
-The priority was to deliver a complete working end-to-end assignment within the available scope:
-
-
-
-Job creation → interview generation → tokenized candidate interview → text/audio answer submission → interview completion → scoring → results.
-
-
-
-The speech-to-text integration point is intentionally isolated so a production transcription provider such as Whisper can be plugged into the service without changing the rest of the application.
-
-
-
+```text
+Job creation
+    ->
+Interview generation
+    ->
+AI-generated questions
+    ->
+Tokenized candidate interview
+    ->
+Text/audio answers
+    ->
+Speech-to-text
+    ->
+AI semantic scoring
+    ->
+Interview results
+    ->
+Recruiter review
+```
+
+The following limitations remain:
+
+* Recruiter authentication and authorization are not implemented.
+* SQLite is used for development.
+* The implementation uses Django REST Framework instead of the FastAPI stack specified in the original assignment.
+* PostgreSQL/Alembic are not currently used.
+
+These are deliberate scope trade-offs and are documented rather than hidden.

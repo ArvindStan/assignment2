@@ -2,15 +2,17 @@
 
 Full-stack hiring interview application built with Django REST Framework, React/Vite, LangChain, LangGraph, Pydantic, and Ollama.
 
-The application allows recruiters to create jobs, define required skills, generate technical interviews, share candidate interview links, collect answers, and review AI-generated interview results.
+The application allows recruiters to create jobs, define required skills, generate technical interviews, share candidate interview links, collect text or audio answers, and review AI-generated interview results.
 
 ## Implemented
 
 * Create and list jobs with required skills and ratings
 * Generate five technical interview questions using a real LLM
 * Candidate token-based interview links with 24-hour expiry
+* Candidate name capture before starting an interview
 * Candidate text answers
 * Browser-based audio recording and audio upload
+* Local speech-to-text transcription
 * Automatic interview completion
 * AI-based semantic interview scoring
 * Skill-level ratings, overall fit score, and summary
@@ -21,7 +23,7 @@ The application allows recruiters to create jobs, define required skills, genera
 
 ## AI Pipeline
 
-AI functionality is isolated in `interviews/services/ai.py`.
+AI functionality is implemented in `interviews/services/ai.py`.
 
 ### Question generation
 
@@ -45,7 +47,7 @@ START
 
 LangChain handles the LLM integration and LangGraph defines the processing workflows. Pydantic models enforce structured outputs.
 
-The scoring evaluates the **content of candidate transcripts**, including technical correctness, depth, practical experience, reasoning, and relevance. It does not use transcript length as the scoring mechanism.
+The scoring evaluates the content of candidate transcripts, including technical correctness, depth, practical experience, reasoning, and relevance. Transcript length is not used as the scoring mechanism.
 
 Supported providers:
 
@@ -62,6 +64,7 @@ AI configuration is provided through environment variables.
 python -m venv venv
 .\venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
+
 python manage.py migrate
 python manage.py seed_skills
 python manage.py runserver
@@ -90,6 +93,8 @@ AI_PROVIDER=openai
 OPENAI_API_KEY=your-api-key
 OPENAI_MODEL=gpt-4o-mini
 ```
+
+API keys are read from environment configuration and are not hardcoded in the application.
 
 ### Frontend
 
@@ -136,14 +141,16 @@ GET  /api/interviews/{interview_id}/
 
 ## Known Limitations
 
-* Automatic speech-to-text transcription is not implemented. Browser audio can be recorded and uploaded, but the current implementation does not convert the audio into a transcript automatically.
 * Recruiter authentication and authorization are not implemented.
 * SQLite is used for development.
+* The implementation uses Django REST Framework rather than the FastAPI stack specified in the original assignment.
+* PostgreSQL/Alembic are not currently used.
 
 ## Project Structure
 
 ```text
 assignment2/
+
 ├── hiring/
 ├── interviews/
 │   ├── models.py
@@ -151,7 +158,8 @@ assignment2/
 │   ├── urls.py
 │   ├── tests.py
 │   └── services/
-│       └── ai.py
+│       ├── ai.py
+│       └── stt.py
 ├── frontend/
 ├── skills_seed.json
 ├── requirements.txt
