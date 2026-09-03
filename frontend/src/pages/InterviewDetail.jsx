@@ -9,9 +9,6 @@ function InterviewDetail({ interviewId }) {
     const [error, setError] = useState("");
 
 
-    /*
-     * Load recruiter interview details.
-     */
     useEffect(() => {
         async function loadInterview() {
             try {
@@ -19,9 +16,7 @@ function InterviewDetail({ interviewId }) {
                 setError("");
 
                 const data =
-                    await getInterviewDetail(
-                        interviewId
-                    );
+                    await getInterviewDetail(interviewId);
 
                 setInterview(data);
             } catch (err) {
@@ -58,6 +53,8 @@ function InterviewDetail({ interviewId }) {
                 return "status-in-progress";
 
             case "not_started":
+                return "status-not-started";
+
             default:
                 return "status-not-started";
         }
@@ -98,6 +95,29 @@ function InterviewDetail({ interviewId }) {
     }
 
 
+    function getRatingLabel(rating) {
+        const value = Number(rating);
+
+        if (value >= 5) {
+            return "Excellent";
+        }
+
+        if (value >= 4) {
+            return "Strong";
+        }
+
+        if (value >= 3) {
+            return "Good";
+        }
+
+        if (value >= 2) {
+            return "Needs Improvement";
+        }
+
+        return "Weak";
+    }
+
+
     if (loading) {
         return (
             <div className="recruiter-page">
@@ -122,6 +142,7 @@ function InterviewDetail({ interviewId }) {
                 </header>
 
                 <main className="recruiter-container">
+
                     <div className="recruiter-state">
                         <div className="state-spinner" />
 
@@ -134,6 +155,7 @@ function InterviewDetail({ interviewId }) {
                             answers, and evaluation results.
                         </p>
                     </div>
+
                 </main>
 
             </div>
@@ -206,12 +228,13 @@ function InterviewDetail({ interviewId }) {
     const result = interview.result;
 
 
+    const answeredQuestions = questions.filter(
+        (question) => question.answer
+    ).length;
+
+
     return (
         <div className="recruiter-page">
-
-            {/* ==========================================
-                TOP BAR
-            =========================================== */}
 
             <header className="recruiter-topbar">
 
@@ -235,116 +258,173 @@ function InterviewDetail({ interviewId }) {
             </header>
 
 
-            <main className="recruiter-container">
+            <main className="recruiter-container recruiter-detail-page">
 
-                {/* ======================================
-                    HEADER
-                ======================================= */}
+                {/* =========================================
+                    ASSESSMENT HEADER
+                ========================================== */}
 
-                <section className="detail-header">
+                <section className="detail-hero">
 
-                    <div className="detail-header-main">
+                    <div className="detail-hero-main">
+
+                        <div className="detail-breadcrumb">
+                            <a href="/recruiter">
+                                Recruiter
+                            </a>
+
+                            <span>
+                                /
+                            </span>
+
+                            <span>
+                                Interview Review
+                            </span>
+                        </div>
+
 
                         <span className="recruiter-eyebrow">
-                            INTERVIEW REVIEW
+                            CANDIDATE ASSESSMENT
                         </span>
+
 
                         <h1>
                             {interview.job?.title ||
                                 "Interview"}
                         </h1>
 
-                        <p className="detail-interview-id">
-                            Interview ID:
+
+                        <div className="detail-id-row">
+
+                            <span>
+                                Interview ID
+                            </span>
+
                             <code>
                                 {interview.interview_id}
                             </code>
-                        </p>
+
+                        </div>
 
                     </div>
 
 
-                    <span
-                        className={
-                            `status-badge large-status ${
-                                getStatusClass(
+                    <div className="detail-hero-status">
+
+                        <span
+                            className={
+                                `status-badge large-status ${
+                                    getStatusClass(
+                                        interview.status
+                                    )
+                                }`
+                            }
+                        >
+                            {getStatusLabel(
+                                interview.status
+                            )}
+                        </span>
+
+                    </div>
+
+                </section>
+
+
+                {/* =========================================
+                    QUICK STATS
+                ========================================== */}
+
+                <section className="detail-stats-grid">
+
+                    <div className="detail-stat-card">
+
+                        <span className="detail-stat-icon">
+                            ✓
+                        </span>
+
+                        <div>
+                            <span>
+                                Answered
+                            </span>
+
+                            <strong>
+                                {answeredQuestions}
+                                <small>
+                                    /{questions.length}
+                                </small>
+                            </strong>
+                        </div>
+
+                    </div>
+
+
+                    <div className="detail-stat-card">
+
+                        <span className="detail-stat-icon">
+                            ✦
+                        </span>
+
+                        <div>
+                            <span>
+                                Skills Evaluated
+                            </span>
+
+                            <strong>
+                                {skillScores.length}
+                            </strong>
+                        </div>
+
+                    </div>
+
+
+                    <div className="detail-stat-card">
+
+                        <span className="detail-stat-icon">
+                            ?
+                        </span>
+
+                        <div>
+                            <span>
+                                Questions
+                            </span>
+
+                            <strong>
+                                {questions.length}
+                            </strong>
+                        </div>
+
+                    </div>
+
+
+                    <div className="detail-stat-card">
+
+                        <span className="detail-stat-icon">
+                            ●
+                        </span>
+
+                        <div>
+                            <span>
+                                Interview Status
+                            </span>
+
+                            <strong className="detail-stat-status">
+                                {getStatusLabel(
                                     interview.status
-                                )
-                            }`
-                        }
-                    >
-                        {getStatusLabel(
-                            interview.status
-                        )}
-                    </span>
+                                )}
+                            </strong>
+                        </div>
 
-                </section>
-
-
-                {/* ======================================
-                    INTERVIEW INFORMATION
-                ======================================= */}
-
-                <section className="detail-info-grid">
-
-                    <div className="detail-info-card">
-                        <span>
-                            Created
-                        </span>
-
-                        <strong>
-                            {formatDate(
-                                interview.created_at
-                            )}
-                        </strong>
-                    </div>
-
-
-                    <div className="detail-info-card">
-                        <span>
-                            Expires
-                        </span>
-
-                        <strong>
-                            {formatDate(
-                                interview.expires_at
-                            )}
-                        </strong>
-                    </div>
-
-
-                    <div className="detail-info-card">
-                        <span>
-                            Completed / Used
-                        </span>
-
-                        <strong>
-                            {formatDate(
-                                interview.used_at
-                            )}
-                        </strong>
-                    </div>
-
-
-                    <div className="detail-info-card">
-                        <span>
-                            Questions
-                        </span>
-
-                        <strong>
-                            {questions.length}
-                        </strong>
                     </div>
 
                 </section>
 
 
-                {/* ======================================
+                {/* =========================================
                     AI RESULT
-                ======================================= */}
+                ========================================== */}
 
                 {result && (
-                    <section className="detail-result-section">
+                    <section className="detail-section">
 
                         <div className="section-heading">
 
@@ -354,8 +434,14 @@ function InterviewDetail({ interviewId }) {
                                 </span>
 
                                 <h2>
-                                    Overall Result
+                                    Overall Assessment
                                 </h2>
+
+                                <p>
+                                    AI-generated assessment
+                                    based on the candidate's
+                                    interview responses.
+                                </p>
                             </div>
 
                         </div>
@@ -372,20 +458,26 @@ function InterviewDetail({ interviewId }) {
                                     }`
                                 }
                             >
+
                                 <span>
-                                    Overall Fit
+                                    OVERALL FIT
                                 </span>
 
                                 <strong>
-                                    {result.fit_score}
+                                    {result.fit_score || "—"}
                                 </strong>
+
+                                <small>
+                                    AI Assessment
+                                </small>
+
                             </div>
 
 
                             <div className="detail-summary">
 
                                 <span>
-                                    AI Summary
+                                    RECRUITER SUMMARY
                                 </span>
 
                                 <p>
@@ -401,9 +493,95 @@ function InterviewDetail({ interviewId }) {
                 )}
 
 
-                {/* ======================================
+                {/* =========================================
+                    INTERVIEW INFORMATION
+                ========================================== */}
+
+                <section className="detail-section">
+
+                    <div className="section-heading">
+
+                        <div>
+                            <span className="panel-label">
+                                INTERVIEW INFORMATION
+                            </span>
+
+                            <h2>
+                                Interview Timeline
+                            </h2>
+                        </div>
+
+                    </div>
+
+
+                    <div className="detail-info-grid">
+
+                        <div className="detail-info-card">
+
+                            <span>
+                                Created
+                            </span>
+
+                            <strong>
+                                {formatDate(
+                                    interview.created_at
+                                )}
+                            </strong>
+
+                        </div>
+
+
+                        <div className="detail-info-card">
+
+                            <span>
+                                Expires
+                            </span>
+
+                            <strong>
+                                {formatDate(
+                                    interview.expires_at
+                                )}
+                            </strong>
+
+                        </div>
+
+
+                        <div className="detail-info-card">
+
+                            <span>
+                                Completed / Used
+                            </span>
+
+                            <strong>
+                                {formatDate(
+                                    interview.used_at
+                                )}
+                            </strong>
+
+                        </div>
+
+
+                        <div className="detail-info-card">
+
+                            <span>
+                                Job
+                            </span>
+
+                            <strong>
+                                {interview.job?.title ||
+                                    "—"}
+                            </strong>
+
+                        </div>
+
+                    </div>
+
+                </section>
+
+
+                {/* =========================================
                     SKILL SCORES
-                ======================================= */}
+                ========================================== */}
 
                 <section className="detail-section">
 
@@ -415,7 +593,7 @@ function InterviewDetail({ interviewId }) {
                             </span>
 
                             <h2>
-                                Skill Scores
+                                Technical Skills
                             </h2>
 
                             <p>
@@ -437,63 +615,93 @@ function InterviewDetail({ interviewId }) {
                         <div className="skill-score-grid">
 
                             {skillScores.map(
-                                (score) => (
-                                    <div
-                                        key={score.id ||
-                                            score.skill_id ||
-                                            score.skill}
-                                        className="skill-score-card"
-                                    >
+                                (score) => {
 
-                                        <div className="skill-score-header">
+                                    const rating =
+                                        Math.min(
+                                            5,
+                                            Math.max(
+                                                0,
+                                                Number(
+                                                    score.rating
+                                                ) || 0
+                                            )
+                                        );
 
-                                            <div>
-                                                <span>
-                                                    Skill
-                                                </span>
+                                    return (
+                                        <div
+                                            key={
+                                                score.id ||
+                                                score.skill_id ||
+                                                score.skill
+                                            }
+                                            className="skill-score-card"
+                                        >
 
-                                                <h3>
-                                                    {
-                                                        score.skill_name ||
-                                                        score.skill?.name ||
-                                                        score.skill
-                                                    }
-                                                </h3>
+                                            <div className="skill-score-header">
+
+                                                <div>
+
+                                                    <span>
+                                                        SKILL
+                                                    </span>
+
+                                                    <h3>
+                                                        {
+                                                            score.skill_name ||
+                                                            score.skill?.name ||
+                                                            score.skill
+                                                        }
+                                                    </h3>
+
+                                                </div>
+
+
+                                                <div className="skill-rating">
+
+                                                    <strong>
+                                                        {rating}
+                                                    </strong>
+
+                                                    <small>
+                                                        /5
+                                                    </small>
+
+                                                </div>
+
                                             </div>
 
-                                            <strong>
-                                                {score.rating}
-                                                <small>
-                                                    /5
-                                                </small>
-                                            </strong>
+
+                                            <div className="score-bar">
+
+                                                <div
+                                                    className="score-bar-fill"
+                                                    style={{
+                                                        width:
+                                                            `${rating * 20}%`,
+                                                    }}
+                                                />
+
+                                            </div>
+
+
+                                            <div className="skill-score-footer">
+
+                                                <span>
+                                                    {getRatingLabel(
+                                                        rating
+                                                    )}
+                                                </span>
+
+                                                <span>
+                                                    {rating * 20}%
+                                                </span>
+
+                                            </div>
 
                                         </div>
-
-
-                                        <div className="score-bar">
-
-                                            <div
-                                                className="score-bar-fill"
-                                                style={{
-                                                    width: `${
-                                                        Math.min(
-                                                            5,
-                                                            Math.max(
-                                                                0,
-                                                                Number(
-                                                                    score.rating
-                                                                ) || 0
-                                                            )
-                                                        ) * 20
-                                                    }%`,
-                                                }}
-                                            />
-
-                                        </div>
-
-                                    </div>
-                                )
+                                    );
+                                }
                             )}
 
                         </div>
@@ -502,9 +710,9 @@ function InterviewDetail({ interviewId }) {
                 </section>
 
 
-                {/* ======================================
-                    QUESTIONS + ANSWERS
-                ======================================= */}
+                {/* =========================================
+                    QUESTIONS & ANSWERS
+                ========================================== */}
 
                 <section className="detail-section">
 
@@ -520,10 +728,17 @@ function InterviewDetail({ interviewId }) {
                             </h2>
 
                             <p>
-                                Review the candidate's
-                                responses and recorded
-                                audio.
+                                Review each response,
+                                transcript, and audio
+                                recording.
                             </p>
+                        </div>
+
+                        <div className="response-count">
+                            {answeredQuestions}
+                            <span>
+                                /{questions.length} answered
+                            </span>
                         </div>
 
                     </div>
@@ -557,7 +772,8 @@ function InterviewDetail({ interviewId }) {
                                                 )}
                                             </div>
 
-                                            <div>
+
+                                            <div className="detail-question-content">
 
                                                 <span className="question-skill">
                                                     {
@@ -582,9 +798,19 @@ function InterviewDetail({ interviewId }) {
 
                                         <div className="detail-answer">
 
-                                            <span className="answer-label">
-                                                CANDIDATE ANSWER
-                                            </span>
+                                            <div className="answer-label-row">
+
+                                                <span className="answer-label">
+                                                    CANDIDATE ANSWER
+                                                </span>
+
+                                                {question.answer && (
+                                                    <span className="answered-badge">
+                                                        Answered
+                                                    </span>
+                                                )}
+
+                                            </div>
 
 
                                             {!question.answer ? (
@@ -602,7 +828,16 @@ function InterviewDetail({ interviewId }) {
                                                 </div>
                                             ) : (
                                                 <>
+
                                                     <div className="transcript-box">
+
+                                                        <div className="transcript-header">
+
+                                                            <span>
+                                                                TRANSCRIPT
+                                                            </span>
+
+                                                        </div>
 
                                                         <p>
                                                             {
@@ -623,9 +858,18 @@ function InterviewDetail({ interviewId }) {
 
                                                             <div className="audio-header">
 
-                                                                <span>
-                                                                    AUDIO RECORDING
-                                                                </span>
+                                                                <div>
+
+                                                                    <span>
+                                                                        AUDIO RECORDING
+                                                                    </span>
+
+                                                                    <small>
+                                                                        Candidate response
+                                                                    </small>
+
+                                                                </div>
+
 
                                                                 <a
                                                                     href={
@@ -636,10 +880,11 @@ function InterviewDetail({ interviewId }) {
                                                                     target="_blank"
                                                                     rel="noreferrer"
                                                                 >
-                                                                    Open Audio
+                                                                    Open Audio ↗
                                                                 </a>
 
                                                             </div>
+
 
                                                             <audio
                                                                 controls
@@ -650,9 +895,9 @@ function InterviewDetail({ interviewId }) {
                                                                         .audio_url
                                                                 }
                                                             >
-                                                                Your browser does
-                                                                not support the
-                                                                audio player.
+                                                                Your browser
+                                                                does not support
+                                                                the audio player.
                                                             </audio>
 
                                                         </div>
@@ -673,9 +918,9 @@ function InterviewDetail({ interviewId }) {
                 </section>
 
 
-                {/* ======================================
-                    FOOTER ACTION
-                ======================================= */}
+                {/* =========================================
+                    FOOTER
+                ========================================== */}
 
                 <div className="detail-footer">
 

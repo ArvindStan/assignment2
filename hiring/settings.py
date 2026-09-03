@@ -172,3 +172,8 @@ CORS_ALLOW_ALL_ORIGINS = True
 
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+STT_MODEL = "base"
+STT_DEVICE = "cpu"
+STT_COMPUTE_TYPE = "int8"
+STT_LANGUAGE = None

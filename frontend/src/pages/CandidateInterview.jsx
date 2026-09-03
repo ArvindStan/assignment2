@@ -6,13 +6,20 @@ import {
 
 import {
     getInterview,
+    startInterview,
     submitAnswer,
     submitAudioAnswer,
 } from "../api/client";
 
+import "./CandidateInterview.css";
 
 function CandidateInterview({ token }) {
     const [interview, setInterview] = useState(null);
+    const [candidateName, setCandidateName] =
+        useState("");
+    const [startingInterview, setStartingInterview] =
+        useState(false);
+
     const [answers, setAnswers] = useState({});
     const [audioFiles, setAudioFiles] = useState({});
     const [audioPreviews, setAudioPreviews] = useState({});
@@ -45,6 +52,12 @@ function CandidateInterview({ token }) {
                     await getInterview(token);
 
                 setInterview(data);
+
+                if (data.candidate_name) {
+                    setCandidateName(
+                        data.candidate_name
+                    );
+                }
             } catch (err) {
                 setError(
                     err.message ||
@@ -67,8 +80,86 @@ function CandidateInterview({ token }) {
     useEffect(() => {
         return () => {
             stopRecordingCleanup();
+
+            Object.values(audioPreviews).forEach(
+                (previewUrl) => {
+                    URL.revokeObjectURL(
+                        previewUrl
+                    );
+                }
+            );
         };
     }, []);
+
+
+    const handleCandidateNameChange = (
+        event
+    ) => {
+        setCandidateName(
+            event.target.value
+        );
+
+        setError("");
+        setSuccess("");
+    };
+
+
+    const handleStartInterview = async (
+        event
+    ) => {
+        event.preventDefault();
+
+        const trimmedName =
+            candidateName.trim();
+
+        if (!trimmedName) {
+            setError(
+                "Please enter your full name before starting the interview."
+            );
+            return;
+        }
+
+        if (trimmedName.length > 255) {
+            setError(
+                "Your name must be 255 characters or fewer."
+            );
+            return;
+        }
+
+        try {
+            setStartingInterview(true);
+            setError("");
+            setSuccess("");
+
+            const data =
+                await startInterview(
+                    token,
+                    trimmedName
+                );
+
+            setCandidateName(
+                data.candidate_name ||
+                    trimmedName
+            );
+
+            setInterview(
+                (previous) => ({
+                    ...previous,
+                    ...data,
+                    candidate_name:
+                        data.candidate_name ||
+                        trimmedName,
+                })
+            );
+        } catch (err) {
+            setError(
+                err.message ||
+                    "Unable to start the interview."
+            );
+        } finally {
+            setStartingInterview(false);
+        }
+    };
 
 
     const handleTextChange = (
@@ -573,6 +664,133 @@ function CandidateInterview({ token }) {
     }
 
 
+    /*
+     * Candidate start screen.
+     *
+     * Existing interviews created before the
+     * candidate-name feature have an empty name,
+     * so they will also be asked for their name.
+     */
+    if (!interview.candidate_name) {
+        const totalQuestions =
+            interview.questions?.length ||
+            0;
+
+        return (
+            <div className="candidate-page">
+                <CandidateTopbar />
+
+                <main className="candidate-container">
+                    <section className="candidate-start-card">
+
+                        <div className="candidate-start-eyebrow">
+                            {interview.job_title ||
+                                "TECHNICAL ASSESSMENT"}
+                        </div>
+
+                        <h1>
+                            Before you begin
+                        </h1>
+
+                        <p className="candidate-start-description">
+                            Please enter your full name
+                            before starting the technical
+                            interview.
+                        </p>
+
+                        <form
+                            className="candidate-start-form"
+                            onSubmit={
+                                handleStartInterview
+                            }
+                        >
+                            <label htmlFor="candidate-name">
+                                Full Name
+                                <span>*</span>
+                            </label>
+
+                            <input
+                                id="candidate-name"
+                                type="text"
+                                value={
+                                    candidateName
+                                }
+                                onChange={
+                                    handleCandidateNameChange
+                                }
+                                placeholder="Enter your full name"
+                                maxLength={255}
+                                autoComplete="name"
+                                autoFocus
+                                disabled={
+                                    startingInterview
+                                }
+                            />
+
+                            {error && (
+                                <div className="candidate-start-error">
+                                    <span>!</span>
+                                    {error}
+                                </div>
+                            )}
+
+                            <div className="candidate-start-info">
+                                <div>
+                                    <strong>
+                                        {totalQuestions}
+                                    </strong>
+
+                                    <span>
+                                        Questions
+                                    </span>
+                                </div>
+
+                                <div>
+                                    <strong>
+                                        Text + Audio
+                                    </strong>
+
+                                    <span>
+                                        Answer options
+                                    </span>
+                                </div>
+
+                                <div>
+                                    <strong>
+                                        AI
+                                    </strong>
+
+                                    <span>
+                                        Technical evaluation
+                                    </span>
+                                </div>
+                            </div>
+
+                            <button
+                                type="submit"
+                                className="candidate-start-button"
+                                disabled={
+                                    startingInterview ||
+                                    !candidateName.trim()
+                                }
+                            >
+                                {startingInterview
+                                    ? "Starting Interview..."
+                                    : "Start Interview →"}
+                            </button>
+                        </form>
+
+                        <p className="candidate-start-secure">
+                            🔒 Your responses are securely
+                            submitted for evaluation.
+                        </p>
+                    </section>
+                </main>
+            </div>
+        );
+    }
+
+
     const totalQuestions =
         interview.questions?.length ||
         0;
@@ -609,7 +827,11 @@ function CandidateInterview({ token }) {
                         </h1>
 
                         <p>
-                            Take your time and answer
+                            Welcome,{" "}
+                            <strong>
+                                {interview.candidate_name}
+                            </strong>
+                            . Take your time and answer
                             each question clearly.
                             You can provide your
                             response using text or
@@ -644,6 +866,16 @@ function CandidateInterview({ token }) {
                                 <span></span>
                                 LIVE
                             </div>
+                        </div>
+
+                        <div className="detail-item">
+                            <span>
+                                CANDIDATE
+                            </span>
+
+                            <strong>
+                                {interview.candidate_name}
+                            </strong>
                         </div>
 
                         <div className="detail-item">

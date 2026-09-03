@@ -49,7 +49,11 @@ async function request(endpoint, options = {}) {
     let data;
 
     if (contentType.includes("application/json")) {
-        data = await response.json();
+        try {
+            data = await response.json();
+        } catch {
+            data = {};
+        }
     } else {
         data = await response.text();
     }
@@ -69,11 +73,17 @@ async function request(endpoint, options = {}) {
 }
 
 
+/*
+ * Skills
+ */
 export function getSkills() {
     return request("/skills/");
 }
 
 
+/*
+ * Jobs
+ */
 export function getJobs() {
     return request("/jobs/");
 }
@@ -90,6 +100,13 @@ export function createJob(title, skills) {
 }
 
 
+/*
+ * Interview generation
+ *
+ * Kept as an API function for the interview-generation
+ * workflow, even though the recruiter dashboard no longer
+ * exposes a Generate Interview button.
+ */
 export function generateInterview(jobId) {
     return request(`/jobs/${jobId}/interview/`, {
         method: "POST",
@@ -120,11 +137,36 @@ export function getInterviewDetail(interviewId) {
 }
 
 
+/*
+ * Candidate API
+ *
+ * Get interview information using the candidate token.
+ */
 export function getInterview(token) {
     return request(`/interview/${token}/`);
 }
 
 
+/*
+ * Candidate API
+ *
+ * Start an interview by saving the candidate's name.
+ */
+export function startInterview(token, candidateName) {
+    return request(`/interview/${token}/`, {
+        method: "POST",
+        body: {
+            candidate_name: candidateName,
+        },
+    });
+}
+
+
+/*
+ * Candidate API
+ *
+ * Submit a text transcript answer.
+ */
 export function submitAnswer(
     token,
     questionId,
@@ -140,6 +182,11 @@ export function submitAnswer(
 }
 
 
+/*
+ * Candidate API
+ *
+ * Submit an audio answer.
+ */
 export function submitAudioAnswer(
     token,
     questionId,
@@ -167,6 +214,11 @@ export function submitAudioAnswer(
 }
 
 
+/*
+ * Candidate API
+ *
+ * Get completed interview result.
+ */
 export function getInterviewResult(token) {
     return request(
         `/interview/${token}/result/`

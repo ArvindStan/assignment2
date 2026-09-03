@@ -1,6 +1,7 @@
 from django.db import models
 import uuid
 
+
 # Create your models here.
 class Skill(models.Model):
     skill_id = models.CharField(max_length=100, unique=True)
@@ -48,17 +49,45 @@ class Interview(models.Model):
         ("completed", "Completed"),
     ]
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    job = models.ForeignKey(Job, on_delete=models.CASCADE, related_name="interviews")
-    token = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False,
+    )
+
+    job = models.ForeignKey(
+        Job,
+        on_delete=models.CASCADE,
+        related_name="interviews",
+    )
+
+    token = models.UUIDField(
+        default=uuid.uuid4,
+        unique=True,
+        editable=False,
+    )
+
+    candidate_name = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+    )
+
     status = models.CharField(
         max_length=20,
         choices=STATUS_CHOICES,
         default="not_started",
     )
+
     expires_at = models.DateTimeField()
-    used_at = models.DateTimeField(null=True, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
+    used_at = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+    )
 
 
 class InterviewQuestion(models.Model):
@@ -67,7 +96,12 @@ class InterviewQuestion(models.Model):
         on_delete=models.CASCADE,
         related_name="questions",
     )
-    skill = models.ForeignKey(Skill, on_delete=models.PROTECT)
+
+    skill = models.ForeignKey(
+        Skill,
+        on_delete=models.PROTECT,
+    )
+
     question = models.TextField()
     order = models.PositiveSmallIntegerField()
 
@@ -87,9 +121,18 @@ class Answer(models.Model):
         on_delete=models.CASCADE,
         related_name="answer",
     )
+
     transcript = models.TextField(blank=True)
-    audio = models.FileField(upload_to="answers/", null=True, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
+
+    audio = models.FileField(
+        upload_to="answers/",
+        null=True,
+        blank=True,
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+    )
 
 
 class SkillScore(models.Model):
@@ -98,7 +141,12 @@ class SkillScore(models.Model):
         on_delete=models.CASCADE,
         related_name="skill_scores",
     )
-    skill = models.ForeignKey(Skill, on_delete=models.PROTECT)
+
+    skill = models.ForeignKey(
+        Skill,
+        on_delete=models.PROTECT,
+    )
+
     rating = models.PositiveSmallIntegerField()
 
     class Meta:
@@ -122,6 +170,14 @@ class InterviewResult(models.Model):
         on_delete=models.CASCADE,
         related_name="result",
     )
-    fit_score = models.CharField(max_length=10, choices=FIT_CHOICES)
+
+    fit_score = models.CharField(
+        max_length=10,
+        choices=FIT_CHOICES,
+    )
+
     summary = models.TextField()
-    created_at = models.DateTimeField(auto_now_add=True)
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+    )

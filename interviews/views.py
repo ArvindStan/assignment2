@@ -138,6 +138,7 @@ class JobInterviewListView(APIView):
                 "token": str(interview.token),
                 "job_id": job.id,
                 "job_title": job.title,
+                "candidate_name": interview.candidate_name,
                 "status": interview.status,
                 "created_at": interview.created_at,
                 "expires_at": interview.expires_at,
@@ -154,7 +155,8 @@ class JobInterviewListView(APIView):
 class InterviewDetailView(APIView):
     """
     Recruiter endpoint showing the complete interview record,
-    including questions, transcripts, audio, scores and result.
+    including candidate, questions, transcripts, audio,
+    scores and result.
     """
 
     def get(self, request, interview_id):
@@ -185,6 +187,7 @@ class InterviewDetailView(APIView):
             {
                 "interview_id": str(interview.id),
                 "token": str(interview.token),
+                "candidate_name": interview.candidate_name,
                 "job": {
                     "id": interview.job.id,
                     "title": interview.job.title,
@@ -362,6 +365,7 @@ class CandidateInterviewView(APIView):
 
         return Response({
             "interview_id": str(interview.id),
+            "candidate_name": interview.candidate_name,
             "status": interview.status,
             "questions": [
                 {
@@ -370,6 +374,83 @@ class CandidateInterviewView(APIView):
                     "question": question.question,
                 }
                 for question in interview.questions.all()
+            ],
+        })
+
+    def post(self, request, token):
+        """
+        Candidate starts the interview by providing their name.
+        """
+
+        interview = get_object_or_404(
+            Interview,
+            token=token,
+        )
+
+        if interview.expires_at <= timezone.now():
+            return Response(
+                {"error": "Interview link has expired"},
+                status=status.HTTP_410_GONE,
+            )
+
+        if interview.used_at is not None:
+            return Response(
+                {"error": "Interview link has already been used"},
+                status=status.HTTP_410_GONE,
+            )
+
+        candidate_name = request.data.get(
+            "candidate_name",
+            "",
+        ).strip()
+
+        if not candidate_name:
+            return Response(
+                {"error": "candidate_name is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if len(candidate_name) > 255:
+            return Response(
+                {
+                    "error": (
+                        "candidate_name must be 255 characters "
+                        "or fewer"
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        interview.candidate_name = candidate_name
+
+        if interview.status == "not_started":
+            interview.status = "in_progress"
+
+        interview.save(
+            update_fields=[
+                "candidate_name",
+                "status",
+            ]
+        )
+
+        questions = (
+            interview.questions
+            .select_related("skill")
+            .order_by("order")
+        )
+
+        return Response({
+            "message": "Interview started",
+            "interview_id": str(interview.id),
+            "candidate_name": interview.candidate_name,
+            "status": interview.status,
+            "questions": [
+                {
+                    "id": question.id,
+                    "order": question.order,
+                    "question": question.question,
+                }
+                for question in questions
             ],
         })
 

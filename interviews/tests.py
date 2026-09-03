@@ -23,6 +23,7 @@ from .services.ai import (
     InterviewScore,
     SkillEvaluation,
 )
+from .services.stt import SpeechToTextService
 
 
 class InterviewAPITestCase(TestCase):
@@ -838,64 +839,127 @@ class InterviewAPITestCase(TestCase):
             ).count(),
             1,
         )
+@patch("interviews.views.SpeechToTextService")
+@patch("interviews.views.AIService")
+def test_candidate_can_submit_audio_answer(
+    self,
+    mock_ai_service,
+    mock_stt_service,
+):
+    mock_ai_service.return_value.generate_questions.return_value = (
+        self.mock_generated_questions()
+    )
 
-    @patch("interviews.views.AIService")
-    def test_candidate_can_submit_audio_answer(
-        self,
-        mock_ai_service,
-    ):
-        mock_ai_service.return_value.generate_questions.return_value = (
-            self.mock_generated_questions()
-        )
+    mock_stt_service.return_value.transcribe.return_value = (
+        "I have five years of experience working with Python and Django."
+    )
 
-        response = self.client.post(
-            f"/api/jobs/{self.job.id}/interview/"
-        )
+    response = self.client.post(
+        f"/api/jobs/{self.job.id}/interview/"
+    )
 
-        token = response.data["token"]
+    token = response.data["token"]
 
-        interview = Interview.objects.get(
-            id=response.data["interview_id"]
-        )
+    interview = Interview.objects.get(
+        id=response.data["interview_id"]
+    )
 
-        question = interview.questions.first()
+    question = interview.questions.first()
 
-        audio = SimpleUploadedFile(
-            "answer.webm",
-            b"fake audio content",
-            content_type="audio/webm",
-        )
+    audio = SimpleUploadedFile(
+        "answer.webm",
+        b"fake audio content",
+        content_type="audio/webm",
+    )
 
-        response = self.client.post(
-            f"/api/interview/{token}/answer/",
-            {
-                "question_id": question.id,
-                "audio": audio,
-            },
-            format="multipart",
-        )
+    response = self.client.post(
+        f"/api/interview/{token}/answer/",
+        {
+            "question_id": question.id,
+            "audio": audio,
+        },
+        format="multipart",
+    )
 
-        self.assertEqual(
-            response.status_code,
-            200,
-        )
+    self.assertEqual(
+        response.status_code,
+        200,
+    )
 
-        answer = Answer.objects.get(
-            question=question
-        )
+    mock_stt_service.return_value.transcribe.assert_called_once()
 
-        self.assertTrue(
-            answer.audio
-        )
+    answer = Answer.objects.get(
+        question=question
+    )
 
-        self.assertTrue(
-            answer.transcript
-        )
+    self.assertTrue(
+        answer.audio
+    )
 
-        self.assertIn(
-            "Audio response received successfully",
-            answer.transcript,
-        )
+    self.assertEqual(
+        answer.transcript,
+        (
+            "I have five years of experience "
+            "working with Python and Django."
+        ),
+    )
+    # @patch("interviews.views.AIService")
+    # def test_candidate_can_submit_audio_answer(
+    #     self,
+    #     mock_ai_service,
+    # ):
+    #     mock_ai_service.return_value.generate_questions.return_value = (
+    #         self.mock_generated_questions()
+    #     )
+
+    #     response = self.client.post(
+    #         f"/api/jobs/{self.job.id}/interview/"
+    #     )
+
+    #     token = response.data["token"]
+
+    #     interview = Interview.objects.get(
+    #         id=response.data["interview_id"]
+    #     )
+
+    #     question = interview.questions.first()
+
+    #     audio = SimpleUploadedFile(
+    #         "answer.webm",
+    #         b"fake audio content",
+    #         content_type="audio/webm",
+    #     )
+
+    #     response = self.client.post(
+    #         f"/api/interview/{token}/answer/",
+    #         {
+    #             "question_id": question.id,
+    #             "audio": audio,
+    #         },
+    #         format="multipart",
+    #     )
+
+    #     self.assertEqual(
+    #         response.status_code,
+    #         200,
+    #     )
+
+    #     answer = Answer.objects.get(
+    #         question=question
+    #     )
+
+    #     self.assertTrue(
+    #         answer.audio
+    #     )
+
+    #     self.assertTrue(
+    #         answer.transcript
+    #     )
+
+    #     self.assertIn(
+    #         "Audio response received successfully",
+    #         answer.transcript,
+    #     )
 
     def test_answer_requires_question_id(self):
         response = self.client.post(
